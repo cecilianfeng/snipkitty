@@ -36,11 +36,11 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     // Get current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       const currentUser = session?.user ?? null
       setUser(currentUser)
       if (currentUser) {
-        fetchProfile(currentUser)
+        await fetchProfile(currentUser)
       }
       setLoading(false)
     })
