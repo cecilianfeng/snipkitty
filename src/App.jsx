@@ -22,4 +22,7 @@ export default function App() {
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/reminders" element={<Reminders />} />
         <Route path="/settings" element={<Settings />} />
-      
+      </Route>
+    </Routes>
+  )
+}
