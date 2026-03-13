@@ -154,6 +154,11 @@ const BLOCKLIST = [
   'airbnb', 'booking.com', 'expedia', 'hotels.com', 'airline',
   // Real estate
   'rent', 'mortgage', 'property',
+  // Fashion / Clothing
+  'shein', 'fashionnova', 'fashion nova', 'revolve', 'ssense', 'farfetch',
+  'abercrombie', 'hollister', 'banana republic', 'j.crew', 'madewell',
+  // Other retail / misc
+  'apple.com/bill', 'etsy', 'wayfair', 'indigo', 'chapters',
 ]
 
 // ─── SUBSCRIPTION INDICATOR KEYWORDS ───
@@ -313,15 +318,23 @@ function detectBillingCycle(text) {
 }
 
 /**
+ * Check if sender is on the blocklist (retailers, ISPs, utilities, etc.)
+ * Uses from + subject only (not body) to avoid false positives from
+ * body text that happens to contain blocklist words.
+ */
+function isBlocklisted(from, subject) {
+  const text = `${from} ${subject}`.toLowerCase()
+  for (const blocked of BLOCKLIST) {
+    if (text.includes(blocked.toLowerCase())) return true
+  }
+  return false
+}
+
+/**
  * Check if email content looks like a subscription (not one-time purchase)
  */
 function isLikelySubscription(from, subject, bodyText) {
   const combined = `${from} ${subject} ${bodyText}`.toLowerCase()
-
-  // Check blocklist first
-  for (const blocked of BLOCKLIST) {
-    if (combined.includes(blocked.toLowerCase())) return false
-  }
 
   // Check for one-time purchase indicators
   let oneTimeScore = 0
@@ -421,9 +434,13 @@ export async function scanGmailForSubscriptions(token, onProgress) {
 
     const from = getHeader(msg, 'From')
     const subject = getHeader(msg, 'Subject')
+
+    // FIRST: check blocklist on from+subject — skip retailers, ISPs, etc.
+    if (isBlocklisted(from, subject)) continue
+
     const bodyText = decodeBody(msg.payload)
 
-    // First: check if it's a known subscription service
+    // Second: check if it's a known subscription service
     const known = matchKnownService(from, subject, bodyText)
 
     if (known) {
