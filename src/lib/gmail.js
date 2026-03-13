@@ -1,178 +1,167 @@
 /**
- * Gmail Inbox Scanner for SnipKitty (V1)
+ * Gmail Inbox Scanner for SnipKitty (V2)
  *
  * V1 Scope: Only SaaS software + streaming subscriptions.
  * Excluded: utility bills, one-time purchases, retail orders.
  *
- * Approach:
- * 1. Search Gmail for subscription-related emails
- * 2. Fetch FULL email body to extract real prices
- * 3. Filter using known subscription services + keyword analysis
- * 4. Exclude known retailers, ISPs, utilities
+ * Strategy:
+ * 1. Search Gmail specifically for BILLING / RECEIPT / INVOICE emails
+ * 2. Check blocklist first (from + subject)
+ * 3. Match known services by FROM domain only (not body text)
+ * 4. Even known services must have billing evidence in the email
+ * 5. Use hardcoded logos for known services, favicon API as fallback
  */
 
 const GMAIL_API = 'https://www.googleapis.com/gmail/v1/users/me'
 
 // ─── KNOWN SUBSCRIPTION SERVICES ───
-// These are always recognized as subscriptions
+// Matched by FROM domain. logo = actual service website for favicon.
 const KNOWN_SUBSCRIPTIONS = {
   // AI Tools
-  'openai': { name: 'ChatGPT Plus', category: 'ai-tools' },
-  'chatgpt': { name: 'ChatGPT Plus', category: 'ai-tools' },
-  'anthropic': { name: 'Claude', category: 'ai-tools' },
-  'claude.ai': { name: 'Claude', category: 'ai-tools' },
-  'midjourney': { name: 'Midjourney', category: 'ai-tools' },
-  'cursor.com': { name: 'Cursor', category: 'ai-tools' },
-  'cursor.sh': { name: 'Cursor', category: 'ai-tools' },
-  'copilot': { name: 'GitHub Copilot', category: 'ai-tools' },
-  'perplexity': { name: 'Perplexity', category: 'ai-tools' },
-  'jasper.ai': { name: 'Jasper AI', category: 'ai-tools' },
-  'runway': { name: 'Runway', category: 'ai-tools' },
-  'eleven labs': { name: 'ElevenLabs', category: 'ai-tools' },
-  'elevenlabs': { name: 'ElevenLabs', category: 'ai-tools' },
+  'openai.com':      { name: 'ChatGPT Plus', category: 'ai-tools', logo: 'openai.com' },
+  'anthropic.com':   { name: 'Claude Pro', category: 'ai-tools', logo: 'claude.ai' },
+  'claude.ai':       { name: 'Claude Pro', category: 'ai-tools', logo: 'claude.ai' },
+  'midjourney.com':  { name: 'Midjourney', category: 'ai-tools', logo: 'midjourney.com' },
+  'cursor.com':      { name: 'Cursor', category: 'ai-tools', logo: 'cursor.com' },
+  'cursor.sh':       { name: 'Cursor', category: 'ai-tools', logo: 'cursor.com' },
+  'perplexity.ai':   { name: 'Perplexity', category: 'ai-tools', logo: 'perplexity.ai' },
+  'jasper.ai':       { name: 'Jasper AI', category: 'ai-tools', logo: 'jasper.ai' },
+  'runwayml.com':    { name: 'Runway', category: 'ai-tools', logo: 'runwayml.com' },
+  'elevenlabs.io':   { name: 'ElevenLabs', category: 'ai-tools', logo: 'elevenlabs.io' },
 
   // Entertainment / Streaming
-  'netflix': { name: 'Netflix', category: 'entertainment' },
-  'disney+': { name: 'Disney+', category: 'entertainment' },
-  'disneyplus': { name: 'Disney+', category: 'entertainment' },
-  'hulu': { name: 'Hulu', category: 'entertainment' },
-  'hbo max': { name: 'HBO Max', category: 'entertainment' },
-  'paramount+': { name: 'Paramount+', category: 'entertainment' },
-  'peacock': { name: 'Peacock', category: 'entertainment' },
-  'crunchyroll': { name: 'Crunchyroll', category: 'entertainment' },
-  'amazon prime': { name: 'Amazon Prime', category: 'entertainment' },
-  'primevideo': { name: 'Amazon Prime Video', category: 'entertainment' },
-  'youtube premium': { name: 'YouTube Premium', category: 'entertainment' },
-  'youtube music': { name: 'YouTube Music', category: 'music' },
-  'apple tv': { name: 'Apple TV+', category: 'entertainment' },
+  'netflix.com':       { name: 'Netflix', category: 'entertainment', logo: 'netflix.com' },
+  'disneyplus.com':    { name: 'Disney+', category: 'entertainment', logo: 'disneyplus.com' },
+  'hulu.com':          { name: 'Hulu', category: 'entertainment', logo: 'hulu.com' },
+  'hbomax.com':        { name: 'HBO Max', category: 'entertainment', logo: 'hbomax.com' },
+  'max.com':           { name: 'Max', category: 'entertainment', logo: 'max.com' },
+  'paramountplus.com': { name: 'Paramount+', category: 'entertainment', logo: 'paramountplus.com' },
+  'crunchyroll.com':   { name: 'Crunchyroll', category: 'entertainment', logo: 'crunchyroll.com' },
+  'primevideo.com':    { name: 'Amazon Prime Video', category: 'entertainment', logo: 'primevideo.com' },
+  'youtube.com':       { name: 'YouTube Premium', category: 'entertainment', logo: 'youtube.com' },
+  'apple.com':         { name: 'Apple (Subscription)', category: 'entertainment', logo: 'apple.com' },
+  'crave.ca':          { name: 'Crave', category: 'entertainment', logo: 'crave.ca' },
 
   // Music
-  'spotify': { name: 'Spotify', category: 'music' },
-  'apple music': { name: 'Apple Music', category: 'music' },
-  'tidal': { name: 'Tidal', category: 'music' },
-  'deezer': { name: 'Deezer', category: 'music' },
-  'soundcloud go': { name: 'SoundCloud Go', category: 'music' },
+  'spotify.com':     { name: 'Spotify', category: 'music', logo: 'spotify.com' },
+  'tidal.com':       { name: 'Tidal', category: 'music', logo: 'tidal.com' },
+  'deezer.com':      { name: 'Deezer', category: 'music', logo: 'deezer.com' },
 
   // Productivity
-  'notion': { name: 'Notion', category: 'productivity' },
-  'slack': { name: 'Slack', category: 'productivity' },
-  'zoom': { name: 'Zoom', category: 'productivity' },
-  'canva': { name: 'Canva', category: 'productivity' },
-  'adobe': { name: 'Adobe Creative Cloud', category: 'productivity' },
-  'microsoft 365': { name: 'Microsoft 365', category: 'productivity' },
-  'office 365': { name: 'Microsoft 365', category: 'productivity' },
-  'grammarly': { name: 'Grammarly', category: 'productivity' },
-  'todoist': { name: 'Todoist', category: 'productivity' },
-  'evernote': { name: 'Evernote', category: 'productivity' },
-  'linear': { name: 'Linear', category: 'productivity' },
-  '1password': { name: '1Password', category: 'productivity' },
-  'lastpass': { name: 'LastPass', category: 'productivity' },
-  'dashlane': { name: 'Dashlane', category: 'productivity' },
-  'bitwarden': { name: 'Bitwarden', category: 'productivity' },
+  'notion.so':         { name: 'Notion', category: 'productivity', logo: 'notion.so' },
+  'slack.com':         { name: 'Slack', category: 'productivity', logo: 'slack.com' },
+  'zoom.us':           { name: 'Zoom', category: 'productivity', logo: 'zoom.us' },
+  'canva.com':         { name: 'Canva', category: 'productivity', logo: 'canva.com' },
+  'adobe.com':         { name: 'Adobe Creative Cloud', category: 'productivity', logo: 'adobe.com' },
+  'grammarly.com':     { name: 'Grammarly', category: 'productivity', logo: 'grammarly.com' },
+  'todoist.com':       { name: 'Todoist', category: 'productivity', logo: 'todoist.com' },
+  'evernote.com':      { name: 'Evernote', category: 'productivity', logo: 'evernote.com' },
+  'linear.app':        { name: 'Linear', category: 'productivity', logo: 'linear.app' },
+  '1password.com':     { name: '1Password', category: 'productivity', logo: '1password.com' },
+  'lastpass.com':      { name: 'LastPass', category: 'productivity', logo: 'lastpass.com' },
+  'bitwarden.com':     { name: 'Bitwarden', category: 'productivity', logo: 'bitwarden.com' },
+  'dashlane.com':      { name: 'Dashlane', category: 'productivity', logo: 'dashlane.com' },
 
   // Developer Tools
-  'github': { name: 'GitHub', category: 'developer-tools' },
-  'gitlab': { name: 'GitLab', category: 'developer-tools' },
-  'figma': { name: 'Figma', category: 'developer-tools' },
-  'vercel': { name: 'Vercel', category: 'developer-tools' },
-  'netlify': { name: 'Netlify', category: 'developer-tools' },
-  'heroku': { name: 'Heroku', category: 'developer-tools' },
-  'digitalocean': { name: 'DigitalOcean', category: 'developer-tools' },
-  'railway': { name: 'Railway', category: 'developer-tools' },
-  'render.com': { name: 'Render', category: 'developer-tools' },
-  'supabase': { name: 'Supabase', category: 'developer-tools' },
-  'firebase': { name: 'Firebase', category: 'developer-tools' },
-  'postman': { name: 'Postman', category: 'developer-tools' },
-  'jetbrains': { name: 'JetBrains', category: 'developer-tools' },
-  'replit': { name: 'Replit', category: 'developer-tools' },
+  'github.com':        { name: 'GitHub', category: 'developer-tools', logo: 'github.com' },
+  'gitlab.com':        { name: 'GitLab', category: 'developer-tools', logo: 'gitlab.com' },
+  'figma.com':         { name: 'Figma', category: 'developer-tools', logo: 'figma.com' },
+  'vercel.com':        { name: 'Vercel', category: 'developer-tools', logo: 'vercel.com' },
+  'netlify.com':       { name: 'Netlify', category: 'developer-tools', logo: 'netlify.com' },
+  'heroku.com':        { name: 'Heroku', category: 'developer-tools', logo: 'heroku.com' },
+  'digitalocean.com':  { name: 'DigitalOcean', category: 'developer-tools', logo: 'digitalocean.com' },
+  'railway.app':       { name: 'Railway', category: 'developer-tools', logo: 'railway.app' },
+  'render.com':        { name: 'Render', category: 'developer-tools', logo: 'render.com' },
+  'supabase.com':      { name: 'Supabase', category: 'developer-tools', logo: 'supabase.com' },
+  'supabase.io':       { name: 'Supabase', category: 'developer-tools', logo: 'supabase.com' },
+  'postman.com':       { name: 'Postman', category: 'developer-tools', logo: 'postman.com' },
+  'jetbrains.com':     { name: 'JetBrains', category: 'developer-tools', logo: 'jetbrains.com' },
+  'replit.com':        { name: 'Replit', category: 'developer-tools', logo: 'replit.com' },
 
   // Cloud Storage
-  'google one': { name: 'Google One', category: 'cloud-storage' },
-  'icloud': { name: 'iCloud+', category: 'cloud-storage' },
-  'dropbox': { name: 'Dropbox', category: 'cloud-storage' },
-  'box.com': { name: 'Box', category: 'cloud-storage' },
-  'google workspace': { name: 'Google Workspace', category: 'cloud-storage' },
+  'google.com':        { name: 'Google One', category: 'cloud-storage', logo: 'one.google.com' },
+  'dropbox.com':       { name: 'Dropbox', category: 'cloud-storage', logo: 'dropbox.com' },
+  'box.com':           { name: 'Box', category: 'cloud-storage', logo: 'box.com' },
 
   // VPN / Security
-  'nordvpn': { name: 'NordVPN', category: 'other' },
-  'expressvpn': { name: 'ExpressVPN', category: 'other' },
-  'surfshark': { name: 'Surfshark', category: 'other' },
-  'protonvpn': { name: 'ProtonVPN', category: 'other' },
-  'proton mail': { name: 'Proton Mail', category: 'other' },
-  'mullvad': { name: 'Mullvad VPN', category: 'other' },
+  'nordvpn.com':       { name: 'NordVPN', category: 'other', logo: 'nordvpn.com' },
+  'expressvpn.com':    { name: 'ExpressVPN', category: 'other', logo: 'expressvpn.com' },
+  'surfshark.com':     { name: 'Surfshark', category: 'other', logo: 'surfshark.com' },
+  'protonvpn.com':     { name: 'ProtonVPN', category: 'other', logo: 'protonvpn.com' },
+  'proton.me':         { name: 'Proton', category: 'other', logo: 'proton.me' },
 
   // Education
-  'duolingo': { name: 'Duolingo Plus', category: 'education' },
-  'coursera': { name: 'Coursera', category: 'education' },
-  'skillshare': { name: 'Skillshare', category: 'education' },
-  'masterclass': { name: 'MasterClass', category: 'education' },
-  'brilliant': { name: 'Brilliant', category: 'education' },
-  'udemy': { name: 'Udemy', category: 'education' },
+  'duolingo.com':    { name: 'Duolingo Plus', category: 'education', logo: 'duolingo.com' },
+  'coursera.org':    { name: 'Coursera', category: 'education', logo: 'coursera.org' },
+  'skillshare.com':  { name: 'Skillshare', category: 'education', logo: 'skillshare.com' },
+  'masterclass.com': { name: 'MasterClass', category: 'education', logo: 'masterclass.com' },
+  'brilliant.org':   { name: 'Brilliant', category: 'education', logo: 'brilliant.org' },
 
   // Health
-  'headspace': { name: 'Headspace', category: 'health' },
-  'calm': { name: 'Calm', category: 'health' },
-  'peloton': { name: 'Peloton', category: 'health' },
-  'strava': { name: 'Strava', category: 'health' },
-  'myfitnesspal': { name: 'MyFitnessPal', category: 'health' },
+  'headspace.com':    { name: 'Headspace', category: 'health', logo: 'headspace.com' },
+  'calm.com':         { name: 'Calm', category: 'health', logo: 'calm.com' },
+  'onepeloton.com':   { name: 'Peloton', category: 'health', logo: 'onepeloton.com' },
+  'strava.com':       { name: 'Strava', category: 'health', logo: 'strava.com' },
 
   // News / Media
-  'medium': { name: 'Medium', category: 'news' },
-  'substack': { name: 'Substack', category: 'news' },
-  'nytimes': { name: 'New York Times', category: 'news' },
-  'washingtonpost': { name: 'Washington Post', category: 'news' },
-  'the athletic': { name: 'The Athletic', category: 'news' },
-  'wall street journal': { name: 'Wall Street Journal', category: 'news' },
+  'medium.com':           { name: 'Medium', category: 'news', logo: 'medium.com' },
+  'substack.com':         { name: 'Substack', category: 'news', logo: 'substack.com' },
+  'nytimes.com':          { name: 'New York Times', category: 'news', logo: 'nytimes.com' },
+  'washingtonpost.com':   { name: 'Washington Post', category: 'news', logo: 'washingtonpost.com' },
+  'theathletic.com':      { name: 'The Athletic', category: 'news', logo: 'theathletic.com' },
 }
 
 // ─── BLOCKLIST: Known non-subscription senders ───
-// Retailers, ISPs, utilities, banks, carriers — always excluded
 const BLOCKLIST = [
   // Telecom / ISPs / Utilities
-  'bell', 'rogers', 'telus', 'fido', 'koodo', 'virgin mobile', 'shaw',
-  'at&t', 'verizon', 'tmobile', 't-mobile', 'comcast', 'xfinity', 'spectrum',
-  'hydro', 'enbridge', 'fortis', 'bc hydro', 'electricity', 'water bill', 'gas bill',
+  'bell.ca', 'bell.net', 'rogers.com', 'telus.com', 'fido.ca', 'koodo.com',
+  'virginmobile', 'shaw.ca', 'att.com', 'verizon.com', 'tmobile.com',
+  't-mobile.com', 'comcast.com', 'xfinity.com', 'spectrum.com',
+  'hydroone', 'enbridge', 'fortisbc', 'bchydro',
   // Retailers
-  'bestbuy', 'best buy', 'walmart', 'amazon.ca', 'amazon.com', 'costco',
-  'target', 'ikea', 'home depot', 'lowes', 'staples', 'winners',
-  'aritzia', 'zara', 'h&m', 'uniqlo', 'gap', 'old navy', 'lululemon',
-  'oak + fort', 'oak+fort', 'sephora', 'ulta', 'nordstrom',
+  'bestbuy', 'walmart', 'amazon.ca', 'amazon.com', 'costco',
+  'target.com', 'ikea.com', 'homedepot', 'lowes.com', 'staples',
+  'winners', 'marshalls', 'tjmaxx',
+  'aritzia', 'zara.com', 'hm.com', 'uniqlo', 'gap.com', 'oldnavy',
+  'lululemon', 'oak+fort', 'oakandfort', 'sephora', 'ulta.com', 'nordstrom',
   // Transportation / Car
-  'uber', 'lyft', 'turo', 'enterprise', 'hertz', 'avis',
-  'autoinsurance', 'car insurance', 'geico', 'progressive',
+  'uber.com', 'lyft.com', 'turo.com', 'enterprise.com', 'hertz.com',
+  'geico.com', 'progressive.com',
   '407etr', '407 etr',
-  // Food delivery (one-time)
-  'doordash', 'ubereats', 'uber eats', 'skip the dishes', 'grubhub',
+  // Food delivery
+  'doordash', 'ubereats', 'skipthedishes', 'grubhub', 'instacart',
   // Banks / Finance
-  'paypal', 'venmo', 'interac', 'scotiabank', 'td bank', 'rbc', 'bmo', 'cibc',
-  'american express', 'visa', 'mastercard', 'chase',
-  // Government / Taxes
-  'cra-arc', 'canada revenue', 'irs', 'government',
-  // Shipping / Tracking
-  'fedex', 'ups', 'usps', 'canada post', 'dhl', 'purolator',
-  // Travel (one-time)
-  'airbnb', 'booking.com', 'expedia', 'hotels.com', 'airline',
+  'paypal.com', 'venmo.com', 'interac', 'scotiabank', 'tdbank', 'td.com',
+  'rbc.com', 'rbcroyalbank', 'bmo.com', 'cibc.com',
+  'americanexpress', 'chase.com',
+  // Government
+  'cra-arc', 'canada.ca', 'irs.gov',
+  // Shipping
+  'fedex.com', 'ups.com', 'usps.com', 'canadapost', 'dhl.com', 'purolator',
+  // Travel
+  'airbnb.com', 'booking.com', 'expedia.com', 'hotels.com',
   // Real estate
-  'rent', 'mortgage', 'property',
+  'zillow', 'realtor.com', 'redfin',
   // Fashion / Clothing
-  'shein', 'fashionnova', 'fashion nova', 'revolve', 'ssense', 'farfetch',
-  'abercrombie', 'hollister', 'banana republic', 'j.crew', 'madewell',
-  // Other retail / misc
-  'apple.com/bill', 'etsy', 'wayfair', 'indigo', 'chapters',
+  'shein.com', 'fashionnova', 'revolve.com', 'ssense.com', 'farfetch',
+  'abercrombie', 'hollister', 'jcrew.com', 'madewell',
+  // Other retail
+  'etsy.com', 'wayfair.com', 'indigo.ca', 'chapters.indigo',
 ]
 
-// ─── SUBSCRIPTION INDICATOR KEYWORDS ───
-// If email contains these, it's more likely a subscription
-const SUBSCRIPTION_KEYWORDS = [
-  'subscription', 'recurring', 'renewal', 'renew', 'monthly plan',
-  'annual plan', 'yearly plan', 'your plan', 'membership',
-  'billing period', 'next billing', 'auto-renew', 'auto renew',
-  'plan renewal', 'subscription confirmation', 'thank you for subscribing',
-  'your .+ subscription', 'premium', 'pro plan', 'plus plan',
-  'trial ending', 'trial expired', 'upgrade',
+// ─── BILLING / PAYMENT KEYWORDS ───
+// Email MUST contain at least one of these to be considered a real subscription charge
+const BILLING_KEYWORDS = [
+  'receipt', 'invoice', 'payment', 'charged', 'billing',
+  'your bill', 'amount due', 'total:', 'transaction',
+  'paid', 'charge of', 'payment of', 'debited',
+  'subscription renew', 'renewal', 'auto-renew', 'recurring',
+  'next billing', 'billing period', 'billing cycle',
+  'thank you for your payment', 'payment confirmation',
+  'payment received', 'successfully charged',
 ]
 
-// ─── ONE-TIME PURCHASE KEYWORDS (exclude) ───
+// ─── ONE-TIME PURCHASE KEYWORDS (reduce score) ───
 const ONE_TIME_KEYWORDS = [
   'order confirmation', 'order #', 'order number', 'shipping',
   'shipped', 'delivered', 'tracking number', 'track your',
@@ -196,7 +185,6 @@ async function searchMessages(token, query, maxResults = 100) {
 }
 
 async function getMessage(token, messageId) {
-  // Fetch full message to get body content
   const url = `${GMAIL_API}/messages/${messageId}?format=full`
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -218,7 +206,6 @@ function getHeader(message, name) {
 function decodeBody(payload) {
   let body = ''
 
-  // Try direct body data
   if (payload.body?.data) {
     try {
       body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'))
@@ -227,7 +214,6 @@ function decodeBody(payload) {
     }
   }
 
-  // Try parts (multipart emails)
   if (!body && payload.parts) {
     for (const part of payload.parts) {
       if (part.mimeType === 'text/plain' && part.body?.data) {
@@ -237,18 +223,15 @@ function decodeBody(payload) {
         } catch (e) { /* skip */ }
       }
     }
-    // Fallback to HTML part
     if (!body) {
       for (const part of payload.parts) {
         if (part.mimeType === 'text/html' && part.body?.data) {
           try {
             const html = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'))
-            // Strip HTML tags for text extraction
             body = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
             break
           } catch (e) { /* skip */ }
         }
-        // Nested parts
         if (part.parts) {
           for (const sub of part.parts) {
             if (sub.body?.data) {
@@ -276,7 +259,6 @@ function decodeBody(payload) {
  * Extract dollar amounts from text, return the most likely subscription price
  */
 function extractAmount(text) {
-  // Match patterns like $9.99, $99.99, $199.00, CA$9.99, USD 9.99
   const patterns = [
     /(?:CA)?\$\s?(\d{1,5}\.\d{2})/g,
     /USD\s?(\d{1,5}\.\d{2})/gi,
@@ -288,7 +270,6 @@ function extractAmount(text) {
     let match
     while ((match = pattern.exec(text)) !== null) {
       const val = parseFloat(match[1])
-      // Filter out unrealistic subscription prices
       if (val > 0 && val < 1000) {
         amounts.push(val)
       }
@@ -318,47 +299,37 @@ function detectBillingCycle(text) {
 }
 
 /**
- * Check if sender is on the blocklist (retailers, ISPs, utilities, etc.)
- * Uses from + subject only (not body) to avoid false positives from
- * body text that happens to contain blocklist words.
+ * Extract the full domain from a From header (e.g., "noreply@billing.spotify.com" → "billing.spotify.com")
+ */
+function extractFullDomain(from) {
+  const match = from.match(/@([^\s>]+)/)
+  return match ? match[1].toLowerCase() : ''
+}
+
+/**
+ * Check if FROM domain matches a blocklisted sender
  */
 function isBlocklisted(from, subject) {
-  const text = `${from} ${subject}`.toLowerCase()
+  const fromLower = from.toLowerCase()
+  const subjectLower = subject.toLowerCase()
   for (const blocked of BLOCKLIST) {
-    if (text.includes(blocked.toLowerCase())) return true
+    if (fromLower.includes(blocked) || subjectLower.includes(blocked)) return true
   }
   return false
 }
 
 /**
- * Check if email content looks like a subscription (not one-time purchase)
+ * Match email FROM domain to a known subscription service.
+ * Only matches on the sender domain, NOT the body text.
  */
-function isLikelySubscription(from, subject, bodyText) {
-  const combined = `${from} ${subject} ${bodyText}`.toLowerCase()
+function matchKnownService(from) {
+  const domain = extractFullDomain(from)
+  if (!domain) return null
 
-  // Check for one-time purchase indicators
-  let oneTimeScore = 0
-  for (const kw of ONE_TIME_KEYWORDS) {
-    if (combined.includes(kw)) oneTimeScore++
-  }
-  if (oneTimeScore >= 2) return false
-
-  // Check for subscription indicators
-  let subScore = 0
-  for (const kw of SUBSCRIPTION_KEYWORDS) {
-    if (combined.includes(kw)) subScore++
-  }
-
-  return subScore >= 1
-}
-
-/**
- * Match email to known subscription service
- */
-function matchKnownService(from, subject, bodyText) {
-  const combined = `${from} ${subject} ${bodyText}`.toLowerCase()
-  for (const [keyword, info] of Object.entries(KNOWN_SUBSCRIPTIONS)) {
-    if (combined.includes(keyword.toLowerCase())) {
+  for (const [serviceDomain, info] of Object.entries(KNOWN_SUBSCRIPTIONS)) {
+    // Match if sender domain ends with or contains the service domain
+    // e.g., "billing.spotify.com" matches "spotify.com"
+    if (domain === serviceDomain || domain.endsWith('.' + serviceDomain)) {
       return info
     }
   }
@@ -366,21 +337,31 @@ function matchKnownService(from, subject, bodyText) {
 }
 
 /**
- * Extract sender domain for logo URL
+ * Check if email has billing/payment evidence (not just a notification or welcome email)
  */
-function extractDomain(from) {
-  const match = from.match(/@([^\s>]+)/)
-  return match ? match[1] : null
+function hasBillingEvidence(subject, bodyText) {
+  const combined = `${subject} ${bodyText}`.toLowerCase()
+
+  // Check for one-time purchase indicators first
+  let oneTimeScore = 0
+  for (const kw of ONE_TIME_KEYWORDS) {
+    if (combined.includes(kw)) oneTimeScore++
+  }
+  if (oneTimeScore >= 2) return false
+
+  // Must have at least one billing keyword
+  for (const kw of BILLING_KEYWORDS) {
+    if (combined.includes(kw)) return true
+  }
+  return false
 }
 
 /**
- * Get logo URL for a domain using Google Favicon API
+ * Get logo URL using Google Favicon API with the correct service domain
  */
-function getLogoUrl(from) {
-  const domain = extractDomain(from)
-  if (!domain) return null
-  // Google's favicon service - reliable and free
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
+function getLogoUrl(logoDomain) {
+  if (!logoDomain) return null
+  return `https://www.google.com/s2/favicons?domain=${logoDomain}&sz=64`
 }
 
 /**
@@ -395,7 +376,6 @@ function extractServiceName(from) {
       return name
     }
   }
-  // Try domain name
   const domainMatch = from.match(/@([^.>]+)/)
   if (domainMatch) {
     const domain = domainMatch[1]
@@ -408,7 +388,7 @@ function extractServiceName(from) {
 }
 
 /**
- * Main scan function — searches Gmail for real subscriptions
+ * Main scan function — searches Gmail for PAID subscriptions
  *
  * @param {string} token - Google OAuth access token
  * @param {function} onProgress - callback(current, total) for progress updates
@@ -417,8 +397,17 @@ function extractServiceName(from) {
 export async function scanGmailForSubscriptions(token, onProgress) {
   if (!token) throw new Error('No Google token available. Please sign out and sign in again.')
 
-  // Search specifically for subscription-related emails (last 6 months)
-  const query = '(subject:(subscription OR renewal OR "your plan" OR "billing period" OR "auto-renew" OR "membership" OR "premium" OR "pro plan") OR from:(subscription OR billing OR noreply)) newer_than:6m -category:promotions'
+  // Search specifically for BILLING / RECEIPT / PAYMENT emails (last 12 months)
+  // This targets emails that actually contain payment info, not just notifications
+  const query = [
+    '(subject:(receipt OR invoice OR "payment confirmation" OR "billing statement"',
+    'OR "your bill" OR "payment received" OR "successfully charged"',
+    'OR "subscription renewed" OR "renewal" OR "auto-renew"',
+    'OR "amount charged" OR "transaction"))',
+    'newer_than:12m',
+    '-category:promotions',
+    '-category:social',
+  ].join(' ')
 
   const messages = await searchMessages(token, query, 100)
   if (messages.length === 0) return []
@@ -435,52 +424,76 @@ export async function scanGmailForSubscriptions(token, onProgress) {
     const from = getHeader(msg, 'From')
     const subject = getHeader(msg, 'Subject')
 
-    // FIRST: check blocklist on from+subject — skip retailers, ISPs, etc.
+    // FIRST: check blocklist on from + subject
     if (isBlocklisted(from, subject)) continue
 
     const bodyText = decodeBody(msg.payload)
+    const fullText = `${subject} ${bodyText}`
 
-    // Second: check if it's a known subscription service
-    const known = matchKnownService(from, subject, bodyText)
+    // SECOND: Must have billing/payment evidence in the email
+    if (!hasBillingEvidence(subject, bodyText)) continue
+
+    // THIRD: Check if it's a known subscription service (by FROM domain only)
+    const known = matchKnownService(from)
 
     if (known) {
       const key = known.name.toLowerCase()
-      if (found.has(key)) continue
+      if (found.has(key)) {
+        // Update price if this email has a better (non-zero) price
+        const existing = found.get(key)
+        if (existing.amount === 0) {
+          const newAmount = extractAmount(fullText)
+          if (newAmount) {
+            existing.amount = newAmount
+            existing.billing_cycle = detectBillingCycle(fullText)
+          }
+        }
+        continue
+      }
 
-      const fullText = `${subject} ${bodyText}`
       found.set(key, {
         name: known.name,
         category: known.category,
         amount: extractAmount(fullText) || 0,
-        currency: 'USD',
+        currency: 'CAD',
         billing_cycle: detectBillingCycle(fullText),
         status: 'active',
         next_billing_date: null,
-        logo_url: getLogoUrl(from),
+        logo_url: getLogoUrl(known.logo),
         notes: 'Found via inbox scan',
       })
       continue
     }
 
-    // Not a known service — check if it's likely a subscription
-    if (!isLikelySubscription(from, subject, bodyText)) continue
-
+    // FOURTH: Unknown service — extract name from From header
     const serviceName = extractServiceName(from)
     if (!serviceName) continue
 
     const key = serviceName.toLowerCase()
-    if (found.has(key)) continue
+    if (found.has(key)) {
+      const existing = found.get(key)
+      if (existing.amount === 0) {
+        const newAmount = extractAmount(fullText)
+        if (newAmount) {
+          existing.amount = newAmount
+          existing.billing_cycle = detectBillingCycle(fullText)
+        }
+      }
+      continue
+    }
 
-    const fullText = `${subject} ${bodyText}`
+    // For unknown services, get logo from email sender domain
+    const senderDomain = extractFullDomain(from)
+
     found.set(key, {
       name: serviceName,
       category: 'other',
       amount: extractAmount(fullText) || 0,
-      currency: 'USD',
+      currency: 'CAD',
       billing_cycle: detectBillingCycle(fullText),
       status: 'active',
       next_billing_date: null,
-      logo_url: getLogoUrl(from),
+      logo_url: senderDomain ? getLogoUrl(senderDomain) : null,
       notes: 'Found via inbox scan',
     })
   }
