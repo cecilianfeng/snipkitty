@@ -15,11 +15,19 @@ function HomeRoute() {
   const { user, profile, loading } = useAuth()
   if (loading) return null
   if (user) {
-    // If user hasn't completed onboarding, send them there
     if (profile && !profile.onboarded) return <Navigate to="/onboarding" replace />
     return <Navigate to="/dashboard" replace />
   }
   return <Landing />
+}
+
+// Wrapper for onboarding: must be logged in AND not yet onboarded
+function OnboardingRoute() {
+  const { user, profile, loading } = useAuth()
+  if (loading) return null
+  if (!user) return <Navigate to="/login" replace />
+  if (profile?.onboarded) return <Navigate to="/dashboard" replace />
+  return <Onboarding />
 }
 
 export default function App() {
@@ -27,11 +35,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<HomeRoute />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/onboarding" element={
-        <ProtectedRoute>
-          <Onboarding />
-        </ProtectedRoute>
-      } />
+      <Route path="/onboarding" element={<OnboardingRoute />} />
       <Route element={
         <ProtectedRoute>
           <Layout />

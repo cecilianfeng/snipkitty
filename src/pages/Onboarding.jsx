@@ -1,18 +1,33 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mail, ScanSearch, CheckCircle, ArrowRight, Sparkles } from 'lucide-react'
+import { Mail, ScanSearch, CheckCircle, ArrowRight, ArrowLeft, Sparkles } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
-const CatLogo = ({ size = 40 }) => (
-  <svg viewBox="0 0 40 42" fill="none" style={{ width: size, height: size }}>
-    <g transform="translate(0, 0)">
-      <path d="M8 16L4 3L14 12" fill="#F97316" />
-      <path d="M32 16L36 3L26 12" fill="#F97316" />
-      <ellipse cx="20" cy="24" rx="14" ry="13" fill="#F97316" />
-      <ellipse cx="15" cy="22" rx="2.2" ry="2.6" fill="white" />
-      <ellipse cx="25" cy="22" rx="2.2" ry="2.6" fill="white" />
-      <path d="M18.8 27L20 28.8L21.2 27Z" fill="white" />
+// Same logo as Sidebar — black cat with orange scissors on dark bg inverted for light bg
+const CatLogo = ({ size = 36 }) => (
+  <svg
+    width={size * 1.35}
+    height={size}
+    viewBox="0 0 58 42"
+    fill="none"
+    aria-label="SnipKitty logo"
+  >
+    {/* Scissors */}
+    <g transform="translate(8,26) scale(0.28)">
+      <circle cx="-6" cy="6" r="5" stroke="#F97316" strokeWidth="3" fill="none" />
+      <line x1="-4" y1="2" x2="6" y2="-10" stroke="#F97316" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="6" cy="6" r="5" stroke="#F97316" strokeWidth="3" fill="none" />
+      <line x1="4" y1="2" x2="-6" y2="-10" stroke="#F97316" strokeWidth="3" strokeLinecap="round" />
+    </g>
+    {/* Cat head — dark fill like Landing/Sidebar */}
+    <g transform="translate(18, 0)">
+      <path d="M8 16L4 3L14 12" fill="#111827" />
+      <path d="M32 16L36 3L26 12" fill="#111827" />
+      <ellipse cx="20" cy="24" rx="14" ry="13" fill="#111827" />
+      <ellipse cx="15" cy="22" rx="2.2" ry="2.6" fill="#F97316" />
+      <ellipse cx="25" cy="22" rx="2.2" ry="2.6" fill="#F97316" />
+      <path d="M18.8 27L20 28.8L21.2 27Z" fill="#F97316" />
     </g>
   </svg>
 )
@@ -57,17 +72,21 @@ export default function Onboarding() {
       // Simulate connecting Gmail and scanning
       setCurrentStep(2)
       setIsScanning(true)
-      // Simulate scanning delay
       setTimeout(() => {
         setIsScanning(false)
         setCurrentStep(3)
       }, 3000)
     } else if (currentStep === 3) {
-      // Done — mark onboarded and go to dashboard
       await markOnboarded()
       navigate('/dashboard')
     } else {
       setCurrentStep(prev => prev + 1)
+    }
+  }
+
+  const handleBack = () => {
+    if (currentStep > 0 && !isScanning) {
+      setCurrentStep(prev => prev - 1)
     }
   }
 
@@ -79,7 +98,7 @@ export default function Onboarding() {
       {/* Logo */}
       <div className="absolute top-6 left-6 flex items-center gap-2">
         <CatLogo size={32} />
-        <span className="font-bold text-gray-900">Snip<span className="text-[#F97316]">Kitty</span></span>
+        <span className="text-xl font-bold text-gray-900">Snip<span className="text-[#F97316]">Kitty</span></span>
       </div>
 
       {/* Progress Dots */}
@@ -145,35 +164,48 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Action Button */}
+          {/* Action Buttons */}
           {currentStep !== 2 && (
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleNext}
-              className="w-full py-3 px-6 bg-[#F97316] hover:bg-[#EA580C] text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-            >
-              {currentStep === 0 && "Let's Go"}
-              {currentStep === 1 && (
-                <>
-                  <Mail size={18} />
-                  Connect Gmail
-                </>
+            <div className="space-y-3">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleNext}
+                className="w-full py-3 px-6 bg-[#F97316] hover:bg-[#EA580C] text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                {currentStep === 0 && "Let's Go"}
+                {currentStep === 1 && (
+                  <>
+                    <Mail size={18} />
+                    Connect Gmail
+                  </>
+                )}
+                {currentStep === 3 && (
+                  <>
+                    View My Dashboard
+                    <ArrowRight size={18} />
+                  </>
+                )}
+              </motion.button>
+
+              {/* Back button — show on steps 1+ (not step 0, not during scanning) */}
+              {currentStep > 0 && (
+                <button
+                  onClick={handleBack}
+                  className="w-full py-2.5 px-6 text-gray-500 hover:text-gray-700 font-medium rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                >
+                  <ArrowLeft size={16} />
+                  Back
+                </button>
               )}
-              {currentStep === 3 && (
-                <>
-                  View My Dashboard
-                  <ArrowRight size={18} />
-                </>
-              )}
-            </motion.button>
+            </div>
           )}
 
           {/* Skip option for step 1 */}
           {currentStep === 1 && (
             <button
               onClick={async () => { await markOnboarded(); navigate('/dashboard') }}
-              className="mt-4 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+              className="mt-3 text-sm text-gray-400 hover:text-gray-600 transition-colors"
             >
               Skip for now — I'll add subscriptions manually
             </button>
