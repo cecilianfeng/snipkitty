@@ -223,9 +223,8 @@ export async function scanGmailForSubscriptions(token, onProgress) {
       currency: 'USD',
       billing_cycle: billingCycle,
       status: 'active',
-      next_billing_date: null, // We can't reliably determine this from email
-      notes: `Found via inbox scan from: ${from}`,
-      _emailDate: date, // internal, for sorting
+      next_billing_date: null,
+      notes: `Found via inbox scan`,
     })
   }
 
