@@ -65,10 +65,4 @@ export default function FAQ() {
                   <p className="pb-5 text-gray-600 leading-relaxed">{faq.a}</p>
                 </motion.div>
               )}
-            </AnimatePresence>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+            </A
