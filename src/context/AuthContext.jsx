@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { ensureProfile } from '../lib/subscriptions'
 
 const AuthContext = createContext({})
 
@@ -11,15 +12,17 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   // Fetch profile from Supabase profiles table
-  const fetchProfile = async (userId) => {
+  const fetchProfile = async (currentUser) => {
     try {
+      // Ensure profile exists (handles users who signed up before profiles table)
+      await ensureProfile(currentUser)
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', userId)
+        .eq('id', currentUser.id)
         .single()
       if (error) {
-        // Profile table might not exist yet — that's OK
         console.warn('Profile fetch:', error.message)
         return null
       }
@@ -37,7 +40,7 @@ export function AuthProvider({ children }) {
       const currentUser = session?.user ?? null
       setUser(currentUser)
       if (currentUser) {
-        fetchProfile(currentUser.id)
+        fetchProfile(currentUser)
       }
       setLoading(false)
     })
@@ -48,7 +51,7 @@ export function AuthProvider({ children }) {
         const currentUser = session?.user ?? null
         setUser(currentUser)
         if (currentUser) {
-          fetchProfile(currentUser.id)
+          fetchProfile(currentUser)
         } else {
           setProfile(null)
         }
@@ -99,7 +102,7 @@ export function AuthProvider({ children }) {
     signInWithGoogle,
     signOut,
     markOnboarded,
-    refreshProfile: () => user && fetchProfile(user.id),
+    refreshProfile: () => user && fetchProfile(user),
   }
 
   return (

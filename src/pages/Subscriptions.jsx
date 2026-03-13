@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Filter, Plus, ChevronDown, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -218,6 +219,7 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
 // ─── MAIN PAGE ───
 export default function Subscriptions() {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [subscriptions, setSubscriptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState('by-category')
@@ -225,6 +227,14 @@ export default function Subscriptions() {
   const [expandedItems, setExpandedItems] = useState({})
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSub, setEditingSub] = useState(null)
+
+  // Auto-open modal if ?add=1 from Dashboard
+  useEffect(() => {
+    if (searchParams.get('add') === '1') {
+      setModalOpen(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams])
 
   useEffect(() => {
     if (!user) return
@@ -243,13 +253,19 @@ export default function Subscriptions() {
   }
 
   const handleSave = async (formData) => {
-    if (editingSub) {
-      await updateSubscription(editingSub.id, formData)
-    } else {
-      await createSubscription({ ...formData, user_id: user.id })
+    try {
+      if (editingSub) {
+        await updateSubscription(editingSub.id, formData)
+      } else {
+        await createSubscription({ ...formData, user_id: user.id })
+      }
+      await loadData()
+      setEditingSub(null)
+    } catch (err) {
+      console.error('Save failed:', err)
+      alert('Failed to save subscription: ' + (err.message || 'Unknown error'))
+      throw err // re-throw so modal knows it failed
     }
-    await loadData()
-    setEditingSub(null)
   }
 
   const handleDelete = async (id) => {
