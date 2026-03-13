@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mail, ScanSearch, CheckCircle, ArrowRight, ArrowLeft, Sparkles } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { createSubscription } from '../lib/subscriptions'
+import { scanGmailForSubscriptions } from '../lib/gmail'
 
 // Same logo as Sidebar — black cat with orange scissors on dark bg inverted for light bg
 const CatLogo = ({ size = 36 }) => (
@@ -62,20 +64,50 @@ const steps = [
 export default function Onboarding() {
   const [currentStep, setCurrentStep] = useState(0)
   const [isScanning, setIsScanning] = useState(false)
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 })
+  const [scanFoundCount, setScanFoundCount] = useState(0)
+  const [scanError, setScanError] = useState(null)
   const navigate = useNavigate()
-  const { user, markOnboarded } = useAuth()
+  const { user, markOnboarded, getGoogleToken } = useAuth()
 
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'there'
 
   const handleNext = async () => {
     if (currentStep === 1) {
-      // Simulate connecting Gmail and scanning
+      // Real Gmail scan
       setCurrentStep(2)
       setIsScanning(true)
-      setTimeout(() => {
+      setScanError(null)
+      try {
+        const token = await getGoogleToken()
+        if (!token) {
+          setScanError('Gmail access not available. Please sign out and sign in again.')
+          setIsScanning(false)
+          setCurrentStep(1)
+          return
+        }
+        const found = await scanGmailForSubscriptions(token, (current, total) => {
+          setScanProgress({ current, total })
+        })
+        // Save found subscriptions
+        let added = 0
+        for (const sub of found) {
+          try {
+            await createSubscription({ ...sub, user_id: user.id })
+            added++
+          } catch (err) {
+            console.warn('Failed to add:', sub.name, err)
+          }
+        }
+        setScanFoundCount(added)
         setIsScanning(false)
         setCurrentStep(3)
-      }, 3000)
+      } catch (err) {
+        console.error('Scan failed:', err)
+        setScanError(err.message)
+        setIsScanning(false)
+        setCurrentStep(1)
+      }
     } else if (currentStep === 3) {
       await markOnboarded()
       navigate('/dashboard')
@@ -146,21 +178,33 @@ export default function Onboarding() {
             {currentStep === 0 ? `Hey ${firstName}!` : step.title}
           </h2>
           <p className="text-gray-500 mb-8 leading-relaxed">
-            {step.subtitle}
+            {currentStep === 3
+              ? `We found and added ${scanFoundCount} subscription${scanFoundCount !== 1 ? 's' : ''} from your inbox. Let's take a look!`
+              : step.subtitle}
           </p>
 
-          {/* Scanning animation */}
+          {/* Scanning progress */}
           {currentStep === 2 && isScanning && (
             <div className="mb-6">
               <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                 <motion.div
                   className="h-full bg-gradient-to-r from-[#F97316] to-[#FFB347] rounded-full"
-                  initial={{ width: '0%' }}
-                  animate={{ width: '100%' }}
-                  transition={{ duration: 3, ease: 'easeInOut' }}
+                  animate={{ width: scanProgress.total > 0 ? `${(scanProgress.current / scanProgress.total) * 100}%` : '10%' }}
+                  transition={{ duration: 0.3 }}
                 />
               </div>
-              <p className="text-xs text-gray-400 mt-2">This usually takes a few seconds...</p>
+              <p className="text-xs text-gray-400 mt-2">
+                {scanProgress.total > 0
+                  ? `Scanning email ${scanProgress.current} of ${scanProgress.total}...`
+                  : 'Searching your inbox...'}
+              </p>
+            </div>
+          )}
+
+          {/* Scan error */}
+          {scanError && currentStep === 1 && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-600">{scanError}</p>
             </div>
           )}
 

@@ -11,17 +11,23 @@ import {
   ChevronDown,
   Plus,
   Inbox,
+  Loader2,
+  CheckCircle,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { getSubscriptions, calcMonthlyTotal, getUpcomingRenewals } from '../lib/subscriptions'
+import { getSubscriptions, createSubscription, calcMonthlyTotal, getUpcomingRenewals } from '../lib/subscriptions'
+import { scanGmailForSubscriptions } from '../lib/gmail'
 
 const Dashboard = () => {
-  const { user } = useAuth()
+  const { user, getGoogleToken } = useAuth()
   const [subscriptions, setSubscriptions] = useState([])
   const [loadingData, setLoadingData] = useState(true)
   const [activeFilter, setActiveFilter] = useState('all')
   const [sortBy, setSortBy] = useState('renewal')
   const [hoveredId, setHoveredId] = useState(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 })
+  const [scanResult, setScanResult] = useState(null) // { found: number } or { error: string }
 
   useEffect(() => {
     if (!user) return
@@ -36,6 +42,43 @@ const Dashboard = () => {
       console.error('Failed to load subscriptions:', err)
     } finally {
       setLoadingData(false)
+    }
+  }
+
+  const handleScanInbox = async () => {
+    setScanning(true)
+    setScanResult(null)
+    setScanProgress({ current: 0, total: 0 })
+    try {
+      const token = await getGoogleToken()
+      if (!token) {
+        setScanResult({ error: 'Gmail access not available. Please sign out and sign in again to grant Gmail permission.' })
+        setScanning(false)
+        return
+      }
+      const found = await scanGmailForSubscriptions(token, (current, total) => {
+        setScanProgress({ current, total })
+      })
+      // Save new subscriptions (skip ones that already exist by name)
+      const existingNames = new Set(subscriptions.map(s => s.name.toLowerCase()))
+      let addedCount = 0
+      for (const sub of found) {
+        if (!existingNames.has(sub.name.toLowerCase())) {
+          try {
+            await createSubscription({ ...sub, user_id: user.id })
+            addedCount++
+          } catch (err) {
+            console.warn('Failed to add:', sub.name, err)
+          }
+        }
+      }
+      await loadSubscriptions()
+      setScanResult({ found: addedCount, total: found.length })
+    } catch (err) {
+      console.error('Scan failed:', err)
+      setScanResult({ error: err.message })
+    } finally {
+      setScanning(false)
     }
   }
 
@@ -115,18 +158,33 @@ const Dashboard = () => {
           <p className="text-gray-500 mb-8 max-w-md mx-auto">
             Start by scanning your inbox to automatically find subscriptions, or add one manually.
           </p>
-          <div className="flex gap-3 justify-center">
-            <button className="px-6 py-3 bg-[#F97316] text-white rounded-xl font-semibold hover:bg-[#EA580C] transition-colors flex items-center gap-2">
-              <Mail size={18} />
-              Scan Inbox
-            </button>
-            <Link
-              to="/subscriptions?add=1"
-              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors flex items-center gap-2"
-            >
-              <Plus size={18} />
-              Add Manually
-            </Link>
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex gap-3">
+              <button
+                onClick={handleScanInbox}
+                disabled={scanning}
+                className="px-6 py-3 bg-[#F97316] text-white rounded-xl font-semibold hover:bg-[#EA580C] transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {scanning ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+                {scanning ? `Scanning... (${scanProgress.current}/${scanProgress.total})` : 'Scan Inbox'}
+              </button>
+              <Link
+                to="/subscriptions?add=1"
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors flex items-center gap-2"
+              >
+                <Plus size={18} />
+                Add Manually
+              </Link>
+            </div>
+            {scanResult?.error && (
+              <p className="text-sm text-red-500 max-w-md">{scanResult.error}</p>
+            )}
+            {scanResult && !scanResult.error && (
+              <p className="text-sm text-green-600 flex items-center gap-1">
+                <CheckCircle size={16} />
+                Found {scanResult.total} subscription{scanResult.total !== 1 ? 's' : ''}, added {scanResult.found} new.
+              </p>
+            )}
           </div>
         </main>
       </div>
@@ -166,13 +224,40 @@ const Dashboard = () => {
               <Plus className="w-4 h-4" />
               Add Manually
             </Link>
-            <button className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2 font-medium">
-              <Mail className="w-4 h-4" />
-              Scan Inbox
+            <button
+              onClick={handleScanInbox}
+              disabled={scanning}
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-2 font-medium disabled:opacity-50"
+            >
+              {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              {scanning ? `Scanning... (${scanProgress.current}/${scanProgress.total})` : 'Scan Inbox'}
             </button>
           </div>
         </div>
       </header>
+
+      {/* Scan Result Banner */}
+      {scanResult && (
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4`}>
+          <div className={`rounded-xl p-4 flex items-center justify-between ${
+            scanResult.error ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+          }`}>
+            <p className={`text-sm font-medium flex items-center gap-2 ${
+              scanResult.error ? 'text-red-700' : 'text-green-700'
+            }`}>
+              {scanResult.error ? (
+                scanResult.error
+              ) : (
+                <>
+                  <CheckCircle size={16} />
+                  Scan complete! Found {scanResult.total} subscription{scanResult.total !== 1 ? 's' : ''} in your inbox, added {scanResult.found} new.
+                </>
+              )}
+            </p>
+            <button onClick={() => setScanResult(null)} className="text-sm text-gray-500 hover:text-gray-700">Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

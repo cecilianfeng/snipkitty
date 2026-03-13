@@ -61,15 +61,22 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Google sign-in
+  // Google sign-in — request Gmail read scope so we can scan inbox later
   const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin + '/dashboard'
+        redirectTo: window.location.origin + '/dashboard',
+        scopes: 'https://www.googleapis.com/auth/gmail.readonly',
       }
     })
     if (error) console.error('Login error:', error.message)
+  }
+
+  // Get Google provider token for Gmail API calls
+  const getGoogleToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.provider_token || null
   }
 
   // Sign out
@@ -102,6 +109,7 @@ export function AuthProvider({ children }) {
     signInWithGoogle,
     signOut,
     markOnboarded,
+    getGoogleToken,
     refreshProfile: () => user && fetchProfile(user),
   }
 
