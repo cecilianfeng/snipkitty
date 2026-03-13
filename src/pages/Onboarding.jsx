@@ -48,11 +48,11 @@ export default function Onboarding() {
   const [currentStep, setCurrentStep] = useState(0)
   const [isScanning, setIsScanning] = useState(false)
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, markOnboarded } = useAuth()
 
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'there'
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep === 1) {
       // Simulate connecting Gmail and scanning
       setCurrentStep(2)
@@ -63,7 +63,8 @@ export default function Onboarding() {
         setCurrentStep(3)
       }, 3000)
     } else if (currentStep === 3) {
-      // Done — go to dashboard
+      // Done — mark onboarded and go to dashboard
+      await markOnboarded()
       navigate('/dashboard')
     } else {
       setCurrentStep(prev => prev + 1)
@@ -171,7 +172,7 @@ export default function Onboarding() {
           {/* Skip option for step 1 */}
           {currentStep === 1 && (
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={async () => { await markOnboarded(); navigate('/dashboard') }}
               className="mt-4 text-sm text-gray-400 hover:text-gray-600 transition-colors"
             >
               Skip for now — I'll add subscriptions manually

@@ -10,11 +10,15 @@ import Onboarding from './pages/Onboarding'
 import ProtectedRoute from './components/ProtectedRoute'
 import { useAuth } from './context/AuthContext'
 
-// Wrapper: if logged in, go to dashboard; otherwise show landing page
+// Wrapper: if logged in, go to dashboard (or onboarding); otherwise show landing page
 function HomeRoute() {
-  const { user, loading } = useAuth()
+  const { user, profile, loading } = useAuth()
   if (loading) return null
-  if (user) return <Navigate to="/dashboard" replace />
+  if (user) {
+    // If user hasn't completed onboarding, send them there
+    if (profile && !profile.onboarded) return <Navigate to="/onboarding" replace />
+    return <Navigate to="/dashboard" replace />
+  }
   return <Landing />
 }
 

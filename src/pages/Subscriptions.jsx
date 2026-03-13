@@ -268,6 +268,16 @@ export default function Subscriptions() {
     }
   }
 
+  const handleCancel = async (id) => {
+    try {
+      await updateSubscription(id, { status: 'cancelled' })
+      await loadData()
+    } catch (err) {
+      console.error('Cancel failed:', err)
+      alert('Failed to cancel subscription: ' + (err.message || 'Unknown error'))
+    }
+  }
+
   const handleDelete = async (id) => {
     if (!confirm('Delete this subscription?')) return
     await deleteSubscription(id)
@@ -414,7 +424,7 @@ export default function Subscriptions() {
                             </button>
                             {item.status !== 'cancelled' && (
                               <button
-                                onClick={() => handleSave({ ...item, status: 'cancelled' })}
+                                onClick={() => handleCancel(item.id)}
                                 className="px-4 py-2 text-sm font-medium text-orange-600 border border-orange-300 rounded-lg hover:bg-orange-50 transition-colors"
                               >
                                 Cancel Sub
