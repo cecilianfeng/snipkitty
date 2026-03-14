@@ -15,16 +15,32 @@ import {
   CheckCircle,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { getSubscriptions, createSubscription, calcMonthlyTotal, getUpcomingRenewals } from '../lib/subscriptions'
+import {
+  getSubscriptions,
+  createSubscription,
+  updateSubscription,
+  deleteSubscription,
+  calcMonthlyTotal,
+  calcYearlyTotal,
+  getMonthlyEquivalent,
+  getYearlyEquivalent,
+  calcCancelledSavingsMonthly,
+  calcCancelledSavingsYearly,
+  getUpcomingRenewals,
+  CATEGORIES,
+} from '../lib/subscriptions'
 import { scanGmailForSubscriptions } from '../lib/gmail'
 
 const Dashboard = () => {
   const { user, getGoogleToken } = useAuth()
   const [subscriptions, setSubscriptions] = useState([])
   const [loadingData, setLoadingData] = useState(true)
-  const [activeFilter, setActiveFilter] = useState('all')
+  const [activeFilter, setActiveFilter] = useState('active')
   const [sortBy, setSortBy] = useState('renewal')
   const [hoveredId, setHoveredId] = useState(null)
+  const [costView, setCostView] = useState('monthly') // 'monthly' or 'yearly'
+  const [cancelConfirm, setCancelConfirm] = useState(null) // subscription object to confirm cancel
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // subscription object to confirm delete
   const [scanning, setScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState({ phase: 0, message: '', current: 0, total: 0 })
   const [scanResult, setScanResult] = useState(null) // { confirmed, needsReview, addedCount } or { error }
@@ -123,13 +139,46 @@ const Dashboard = () => {
     setReviewItems(prev => prev.filter(r => r !== item))
   }
 
-  // Calculate stats
+  const handleCancelSub = async (sub) => {
+    try {
+      await updateSubscription(sub.id, { status: 'cancelled' })
+      await loadSubscriptions()
+      setCancelConfirm(null)
+    } catch (err) {
+      console.error('Cancel failed:', err)
+    }
+  }
+
+  const handleDeleteSub = async (sub) => {
+    try {
+      await deleteSubscription(sub.id)
+      await loadSubscriptions()
+      setDeleteConfirm(null)
+    } catch (err) {
+      console.error('Delete failed:', err)
+    }
+  }
+
+  const handleReactivateSub = async (sub) => {
+    try {
+      await updateSubscription(sub.id, { status: 'active' })
+      await loadSubscriptions()
+    } catch (err) {
+      console.error('Reactivate failed:', err)
+    }
+  }
+
+  // Calculate stats — responsive to costView toggle
   const activeCount = subscriptions.filter(s => s.status === 'active').length
   const monthlyTotal = calcMonthlyTotal(subscriptions)
+  const yearlyTotal = calcYearlyTotal(subscriptions)
+  const displayTotal = costView === 'monthly' ? monthlyTotal : yearlyTotal
   const upcoming = getUpcomingRenewals(subscriptions, 7)
-  const cancelledSavings = subscriptions
-    .filter(s => s.status === 'cancelled')
-    .reduce((sum, s) => sum + s.amount, 0)
+  const cancelledSavings = costView === 'monthly'
+    ? calcCancelledSavingsMonthly(subscriptions)
+    : calcCancelledSavingsYearly(subscriptions)
+  const yearlySubs = subscriptions.filter(s => s.status === 'active' && s.billing_cycle === 'yearly')
+  const quarterSubs = subscriptions.filter(s => s.status === 'active' && s.billing_cycle === 'quarterly')
 
   // Filter & sort
   const filtered = subscriptions.filter(sub => {
@@ -273,6 +322,7 @@ const Dashboard = () => {
                             />
                             <p className="text-xs text-gray-400 mt-0.5">
                               {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
+                              {item.last_email_date && ` · Last: ${new Date(item.last_email_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
                             </p>
                             <div className="flex items-center gap-2 mt-2">
                               <span className="text-xs text-gray-500">Amount:</span>
@@ -551,13 +601,50 @@ const Dashboard = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Cost View Toggle */}
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-gray-500">View as:</span>
+          <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+            <button
+              onClick={() => setCostView('monthly')}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                costView === 'monthly'
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setCostView('yearly')}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                costView === 'yearly'
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Yearly
+            </button>
+          </div>
+        </div>
+
         {/* Stats Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-gray-600 text-sm font-medium">Total Monthly Cost</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">${monthlyTotal.toFixed(2)}</p>
+                <p className="text-gray-600 text-sm font-medium">
+                  Total {costView === 'monthly' ? 'Monthly' : 'Yearly'} Cost
+                </p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">${displayTotal.toFixed(2)}</p>
+                {costView === 'monthly' && (yearlySubs.length > 0 || quarterSubs.length > 0) && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Includes {yearlySubs.length > 0 ? `${yearlySubs.length} yearly` : ''}{yearlySubs.length > 0 && quarterSubs.length > 0 ? ', ' : ''}{quarterSubs.length > 0 ? `${quarterSubs.length} quarterly` : ''} (prorated)
+                  </p>
+                )}
+                {costView === 'yearly' && (
+                  <p className="text-xs text-gray-400 mt-1">All subscriptions annualized</p>
+                )}
               </div>
               <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
                 <DollarSign className="w-6 h-6 text-blue-600" />
@@ -592,8 +679,13 @@ const Dashboard = () => {
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-gray-600 text-sm font-medium">Saved This Month</p>
+                <p className="text-gray-600 text-sm font-medium">
+                  Saved ({costView === 'monthly' ? '/mo' : '/yr'})
+                </p>
                 <p className="text-3xl font-bold text-green-600 mt-2">${cancelledSavings.toFixed(2)}</p>
+                {cancelledSavings > 0 && (
+                  <p className="text-xs text-gray-400 mt-1">From cancelled subscriptions</p>
+                )}
               </div>
               <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
                 <TrendingDown className="w-6 h-6 text-green-600" />
@@ -642,58 +734,116 @@ const Dashboard = () => {
         {/* Subscription List */}
         <div className="space-y-3">
           {sorted.length > 0 ? (
-            sorted.map(sub => (
-              <div
-                key={sub.id}
-                onMouseEnter={() => setHoveredId(sub.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                className={`bg-white rounded-xl border border-gray-200 p-5 flex justify-between items-center transition-all ${
-                  sub.status === 'cancelled' ? 'opacity-50' : ''
-                }`}
-              >
-                <div className="flex items-center gap-4 flex-1">
-                  {sub.logo_url ? (
-                    <img src={sub.logo_url} alt={sub.name} className="w-12 h-12 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-lg flex-shrink-0">
-                      {getInitial(sub.name)}
-                    </div>
-                  )}
-                  <div>
-                    <p className={`font-semibold text-gray-900 ${sub.status === 'cancelled' ? 'line-through text-gray-500' : ''}`}>
-                      {sub.name}
-                    </p>
-                    <p className="text-sm text-gray-600 capitalize">{sub.category || 'Uncategorized'} · {sub.billing_cycle}</p>
-                  </div>
-                </div>
+            sorted.map(sub => {
+              const currPrefix = sub.currency && sub.currency !== 'USD' ? sub.currency + ' ' : '$'
+              const catInfo = CATEGORIES[sub.category] || CATEGORIES['other']
+              const equivMonthly = getMonthlyEquivalent(sub)
+              const equivYearly = getYearlyEquivalent(sub)
+              // Show per-item equivalent when it differs from the raw amount
+              const showEquiv = sub.billing_cycle && sub.billing_cycle !== costView.replace('ly', '')
+                && sub.billing_cycle !== (costView === 'monthly' ? 'monthly' : 'yearly')
+                && Number(sub.amount) > 0
 
-                <div className="flex items-center gap-6">
-                  {sub.status !== 'cancelled' && sub.next_billing_date && (
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">Next renewal</p>
-                      <p className="font-semibold text-gray-900">{formatDate(sub.next_billing_date)}</p>
+              return (
+                <div
+                  key={sub.id}
+                  onMouseEnter={() => setHoveredId(sub.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  className={`bg-white rounded-xl border border-gray-200 p-5 flex justify-between items-center transition-all ${
+                    sub.status === 'cancelled' ? 'opacity-60' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-4 flex-1">
+                    {sub.logo_url ? (
+                      <img src={sub.logo_url} alt={sub.name} className="w-12 h-12 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-lg flex-shrink-0">
+                        {getInitial(sub.name)}
+                      </div>
+                    )}
+                    <div>
+                      <p className={`font-semibold text-gray-900 ${sub.status === 'cancelled' ? 'line-through text-gray-500' : ''}`}>
+                        {sub.name}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${catInfo.color} ${catInfo.textColor}`}>
+                          {catInfo.label}
+                        </span>
+                        <span className="text-xs text-gray-400 capitalize">{sub.billing_cycle || 'unknown'}</span>
+                      </div>
+                      {sub.last_email_date && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Last billed: {new Date(sub.last_email_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      )}
                     </div>
-                  )}
-                  {sub.status === 'cancelled' && (
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">Cancelled</p>
-                      <p className="font-semibold text-gray-500">—</p>
-                    </div>
-                  )}
-
-                  <div className="text-right min-w-20">
-                    <p className="text-sm text-gray-600">Price</p>
-                    <p className="font-semibold text-gray-900">
-                      {Number(sub.amount) > 0
-                        ? `${sub.currency && sub.currency !== 'USD' ? sub.currency + ' ' : '$'}${Number(sub.amount).toFixed(2)}`
-                        : '—'}
-                    </p>
                   </div>
 
-                  <div className="min-w-32">{getStatusBadge(sub.status)}</div>
+                  <div className="flex items-center gap-6">
+                    {sub.status !== 'cancelled' && (
+                      <div className="text-right">
+                        <p className="text-sm text-gray-600">Renews</p>
+                        <p className="font-semibold text-gray-900">{formatDate(sub.next_billing_date)}</p>
+                      </div>
+                    )}
+                    {sub.status === 'cancelled' && (
+                      <div className="text-right">
+                        <p className="text-sm text-gray-400">Cancelled</p>
+                      </div>
+                    )}
+
+                    <div className="text-right min-w-24">
+                      <p className="text-sm text-gray-600">Price</p>
+                      {Number(sub.amount) > 0 ? (
+                        <>
+                          <p className="font-semibold text-gray-900">
+                            {currPrefix}{Number(sub.amount).toFixed(2)}
+                            <span className="text-xs text-gray-400 font-normal">
+                              /{sub.billing_cycle === 'yearly' ? 'yr' : sub.billing_cycle === 'quarterly' ? 'qtr' : sub.billing_cycle === 'weekly' ? 'wk' : 'mo'}
+                            </span>
+                          </p>
+                          {showEquiv && (
+                            <p className="text-xs text-gray-400">
+                              ≈ {currPrefix}{(costView === 'monthly' ? equivMonthly : equivYearly).toFixed(2)}/{costView === 'monthly' ? 'mo' : 'yr'}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="font-semibold text-gray-400">—</p>
+                      )}
+                    </div>
+
+                    <div className="min-w-32 flex items-center gap-2">
+                      {getStatusBadge(sub.status)}
+                      {hoveredId === sub.id && sub.status === 'active' && (
+                        <button
+                          onClick={() => setCancelConfirm(sub)}
+                          className="text-xs text-red-400 hover:text-red-600 transition-colors whitespace-nowrap"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      {hoveredId === sub.id && sub.status === 'cancelled' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleReactivateSub(sub)}
+                            className="text-xs text-green-500 hover:text-green-700 transition-colors"
+                          >
+                            Reactivate
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(sub)}
+                            className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
               <p className="text-gray-600 font-medium">No subscriptions match this filter.</p>
@@ -701,6 +851,58 @@ const Dashboard = () => {
           )}
         </div>
       </main>
+
+      {/* Cancel Confirmation Modal */}
+      {cancelConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Cancel Subscription?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Mark <strong>{cancelConfirm.name}</strong> as cancelled? You can reactivate it later.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setCancelConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Keep Active
+              </button>
+              <button
+                onClick={() => handleCancelSub(cancelConfirm)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600"
+              >
+                Yes, Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Permanently?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Permanently delete <strong>{deleteConfirm.name}</strong>? This cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Keep
+              </button>
+              <button
+                onClick={() => handleDeleteSub(deleteConfirm)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600"
+              >
+                Delete Forever
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

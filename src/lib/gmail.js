@@ -153,6 +153,8 @@ const KNOWN_SUBSCRIPTIONS = {
   'protopie.io':       { name: 'ProtoPie', category: 'design', logo: 'protopie.io' },
   'envato.com':        { name: 'Envato Elements', category: 'design', logo: 'envato.com' },
   'creativemarket.com': { name: 'Creative Market', category: 'design', logo: 'creativemarket.com' },
+  'jitter.video':      { name: 'Jitter', category: 'design', logo: 'jitter.video' },
+  'snackthis.co':      { name: 'Jitter', category: 'design', logo: 'jitter.video' },
 
   // ── Cloud Storage & Backup ──
   'dropbox.com':       { name: 'Dropbox', category: 'cloud-storage', logo: 'dropbox.com' },
@@ -255,11 +257,13 @@ const KNOWN_SUBSCRIPTIONS = {
 const MULTI_PRODUCT_DOMAINS = {
   'apple.com': [
     { keywords: ['apple tv', 'tv+'], name: 'Apple TV+', category: 'entertainment', logo: 'tv.apple.com' },
-    { keywords: ['apple music', 'music'], name: 'Apple Music', category: 'music', logo: 'music.apple.com' },
-    { keywords: ['icloud', 'storage'], name: 'iCloud+', category: 'cloud-storage', logo: 'icloud.com' },
+    { keywords: ['apple music', 'music subscription'], name: 'Apple Music', category: 'music', logo: 'music.apple.com' },
+    { keywords: ['icloud', 'storage plan'], name: 'iCloud+', category: 'cloud-storage', logo: 'icloud.com' },
     { keywords: ['arcade'], name: 'Apple Arcade', category: 'gaming', logo: 'apple.com' },
     { keywords: ['fitness+', 'fitness'], name: 'Apple Fitness+', category: 'health', logo: 'apple.com' },
     { keywords: ['apple one'], name: 'Apple One', category: 'entertainment', logo: 'apple.com' },
+    // App Store receipts — catch-all for subscription receipts from App Store
+    { keywords: ['app store', 'receipt', '收据', 'subscription confirmation', 'renewal', 'renews'], name: 'App Store', category: 'entertainment', logo: 'apple.com' },
   ],
   'google.com': [
     { keywords: ['google one', 'storage plan'], name: 'Google One', category: 'cloud-storage', logo: 'one.google.com' },
@@ -267,6 +271,7 @@ const MULTI_PRODUCT_DOMAINS = {
     { keywords: ['youtube music'], name: 'YouTube Music', category: 'music', logo: 'music.youtube.com' },
     { keywords: ['google workspace', 'workspace'], name: 'Google Workspace', category: 'productivity', logo: 'workspace.google.com' },
     { keywords: ['play pass'], name: 'Google Play Pass', category: 'gaming', logo: 'play.google.com' },
+    { keywords: ['google play', 'play store', 'play order'], name: 'Google Play', category: 'entertainment', logo: 'play.google.com' },
     { keywords: ['gemini', 'ai pro'], name: 'Google Gemini', category: 'ai-tools', logo: 'gemini.google.com' },
   ],
   'amazon.com': [
@@ -346,6 +351,9 @@ const BILLING_KEYWORDS = [
   'next billing', 'billing period', 'billing cycle',
   'payment confirmation', 'payment received', 'successfully charged',
   'your receipt', 'monthly charge', 'annual charge',
+  'subscription', 'plan', 'charge', 'order', 'confirmation',
+  'annual plan', 'yearly plan', 'membership', 'premium',
+  'pro plan', 'team plan', 'business plan', 'starter plan',
   '收据', '发票', '账单', '付款', // Chinese billing keywords
 ]
 
@@ -559,8 +567,16 @@ function matchKnownService(domain, subject) {
           return product
         }
       }
-      // Domain matches but no specific product keyword found
-      return null
+      // Domain matches but no specific product keyword found —
+      // Return a generic entry so the email isn't dropped entirely.
+      // Phase 4 will attempt to extract more details from the body.
+      const domainBase = mpDomain.split('.')[0]
+      return {
+        name: domainBase.charAt(0).toUpperCase() + domainBase.slice(1),
+        category: 'other',
+        logo: mpDomain,
+        _isGenericMultiProduct: true,
+      }
     }
   }
 
@@ -865,6 +881,85 @@ function classifyDaysToCycle(days) {
   return null
 }
 
+/**
+ * Extract next billing/renewal date from email text.
+ * Looks for patterns like "Renews on Apr 9, 2026", "Next billing date: 2026-04-09"
+ * Returns ISO date string or null.
+ */
+function extractNextBillingDate(text) {
+  if (!text) return null
+
+  const patterns = [
+    // "Renews Apr 9, 2026" / "Renews on April 9, 2026"
+    /(?:renews?|next\s+(?:billing|payment|charge)\s*(?:date)?)[:\s]+(?:on\s+)?(\w{3,9}\s+\d{1,2},?\s+\d{4})/i,
+    // "Renews 08 Apr 2026"
+    /(?:renews?|next\s+(?:billing|payment))[:\s]+(\d{1,2}\s+\w{3,9}\s+\d{4})/i,
+    // "下次扣费日期: 2026-04-09" / "下次续费: 2026年4月9日"
+    /(?:下次|下一次)(?:扣费|续费|付款|账单)[日期：:\s]*(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?)/,
+    // "Next billing date: 2026-04-09"
+    /next\s+(?:billing|payment)\s+date[:\s]+(\d{4}[-/]\d{1,2}[-/]\d{1,2})/i,
+    // "Expires: 2026-12-03"
+    /expires?\s*(?:on)?[:\s]+(\w{3,9}\s+\d{1,2},?\s+\d{4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})/i,
+  ]
+
+  for (const pat of patterns) {
+    const m = text.match(pat)
+    if (m) {
+      try {
+        // Handle Chinese date format
+        let dateStr = m[1].replace(/年/, '-').replace(/月/, '-').replace(/日/, '')
+        const d = new Date(dateStr)
+        if (!isNaN(d) && d > new Date()) {
+          return d.toISOString().split('T')[0]
+        }
+      } catch (e) { /* continue to next pattern */ }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Estimate next billing date based on last email date + billing cycle.
+ * Returns ISO date string or null.
+ */
+function estimateNextBillingDate(lastEmailDate, billingCycle) {
+  if (!lastEmailDate || !billingCycle) return null
+
+  const d = new Date(lastEmailDate)
+  if (isNaN(d)) return null
+
+  switch (billingCycle) {
+    case 'monthly': d.setMonth(d.getMonth() + 1); break
+    case 'quarterly': d.setMonth(d.getMonth() + 3); break
+    case 'yearly': d.setFullYear(d.getFullYear() + 1); break
+    case 'semi-annual': d.setMonth(d.getMonth() + 6); break
+    case 'weekly': d.setDate(d.getDate() + 7); break
+    default: return null
+  }
+
+  // Only return future dates
+  if (d > new Date()) {
+    return d.toISOString().split('T')[0]
+  }
+
+  // If estimated date is in the past, keep adding cycles until it's future
+  const now = new Date()
+  let attempts = 0
+  while (d <= now && attempts < 100) {
+    switch (billingCycle) {
+      case 'monthly': d.setMonth(d.getMonth() + 1); break
+      case 'quarterly': d.setMonth(d.getMonth() + 3); break
+      case 'yearly': d.setFullYear(d.getFullYear() + 1); break
+      case 'semi-annual': d.setMonth(d.getMonth() + 6); break
+      case 'weekly': d.setDate(d.getDate() + 7); break
+    }
+    attempts++
+  }
+
+  return d > now ? d.toISOString().split('T')[0] : null
+}
+
 function hasBillingEvidence(subject) {
   const subLower = subject.toLowerCase()
   for (const kw of BILLING_KEYWORDS) {
@@ -920,56 +1015,91 @@ function extractAppleAppDetails(bodyText) {
   if (!bodyText) return []
 
   const apps = []
+  const currencyMap = { '¥': 'CNY', '￥': 'CNY', '$': 'USD', '€': 'EUR', '£': 'GBP', '₹': 'INR', '₩': 'KRW' }
 
-  // Pattern: Look for "App Store" section, then find items with "Renews" (= subscription)
-  // Apple receipt body (after HTML stripping) looks like:
+  // Apple receipt emails after HTML stripping may look like many different formats.
+  // Common patterns (spaces collapsed):
   //   "App Store 全民K歌-唱歌录歌首选 超级订阅连续包月 (Monthly) ¥40.00 Renews 08 Apr 2026"
-  //   "App Store 醒图 - 拍照&修图&修live神器 醒图连续包月会员 (Monthly) ¥18.00 Renews 07 Apr 2026"
+  //   "全民K歌  ¥40.00  Renews 08 Apr 2026"
+  //   "App Name  Subscription Plan  $X.XX  Renews DD Mon YYYY"
+  //   Or in table-like format after HTML parsing
 
-  // Look for patterns with "Renews" — indicates it's a subscription
-  const renewPattern = /(.{5,80}?)\s+(?:\(Monthly\)|\(Yearly\)|\(Annual\))?\s*([¥￥$€£₹₩])\s*(\d{1,6}(?:[.,]\d{2})?)\s*(?:Renews?\s+\d{1,2}\s+\w+\s+\d{4})/gi
-  let match
-  while ((match = renewPattern.exec(bodyText)) !== null) {
-    const rawName = match[1].trim()
-    const symbol = match[2]
-    const amount = parseFloat(match[3].replace(/,/g, ''))
+  // ── Pattern 1: Price + "Renews" nearby (most reliable indicator of subscription) ──
+  // Find all price occurrences and check if "Renews" follows within 200 chars
+  const pricePattern = /([¥￥$€£₹₩])\s*(\d{1,6}(?:[.,]\d{2})?)/g
+  let priceMatch
+  while ((priceMatch = pricePattern.exec(bodyText)) !== null) {
+    const afterPrice = bodyText.slice(priceMatch.index, priceMatch.index + 200)
+    const renewMatch = afterPrice.match(/Renews?\s+(\d{1,2}\s+\w{3,9}\s+\d{4})/i)
+    if (!renewMatch) continue
 
-    // Clean up the app name — remove "App Store" prefix and plan description
-    let appName = rawName
-      .replace(/^.*?App Store\s*/i, '')
-      .replace(/\s*(超级|连续|包月|包年|订阅|会员|Premium|Pro|Plus)\s*.*$/i, '')
+    // Look backwards from price to find the app name
+    const beforePrice = bodyText.slice(Math.max(0, priceMatch.index - 200), priceMatch.index)
+    // Get the last meaningful text chunk before the price
+    const nameChunks = beforePrice.split(/\s{3,}|\n|App Store/i).filter(s => s.trim().length > 1)
+    if (nameChunks.length === 0) continue
+
+    let rawName = nameChunks[nameChunks.length - 1].trim()
+
+    // Clean up: remove plan description suffixes
+    rawName = rawName
+      .replace(/\s*(?:超级|连续|包月|包年|订阅|会员|自动续费|Premium|Pro|Plus|Monthly|Yearly|Annual)\s*.*$/i, '')
+      .replace(/\s*\((?:Monthly|Yearly|Annual|Weekly)\)\s*$/i, '')
       .trim()
 
-    if (!appName || appName.length < 2) continue
+    if (!rawName || rawName.length < 2 || rawName.length > 80) continue
 
-    const currencyMap = { '¥': 'CNY', '￥': 'CNY', '$': 'USD', '€': 'EUR', '£': 'GBP', '₹': 'INR', '₩': 'KRW' }
+    // Skip if it's a generic word
+    const lower = rawName.toLowerCase()
+    if (['total', 'subtotal', 'amount', 'tax', 'price', 'billed to'].includes(lower)) continue
+
+    const symbol = priceMatch[1]
+    const amount = parseFloat(priceMatch[2].replace(/,/g, ''))
     const currency = currencyMap[symbol] || 'USD'
 
-    // Detect cycle from nearby text
-    const nearText = match[0]
+    // Detect cycle from surrounding text
+    const contextText = bodyText.slice(Math.max(0, priceMatch.index - 50), priceMatch.index + 200)
     let cycle = null
-    if (/monthly|包月|连续包月/i.test(nearText)) cycle = 'monthly'
-    else if (/yearly|annual|包年/i.test(nearText)) cycle = 'yearly'
+    if (/monthly|包月|连续包月|每月/i.test(contextText)) cycle = 'monthly'
+    else if (/yearly|annual|包年|每年|年度/i.test(contextText)) cycle = 'yearly'
 
-    apps.push({ appName, amount, currency, cycle })
+    // Extract renewal date
+    let renewDate = null
+    try {
+      renewDate = new Date(renewMatch[1]).toISOString()
+    } catch (e) { /* ignore */ }
+
+    // Deduplicate by app name
+    if (!apps.some(a => a.appName === rawName)) {
+      apps.push({ appName: rawName, amount, currency, cycle, renewDate })
+    }
   }
 
-  // Fallback: simpler pattern for receipts with less formatting
+  // ── Pattern 2: Fallback — scan for "Renews DD Mon YYYY" and work backwards ──
   if (apps.length === 0) {
-    // Look for lines with a price followed by "Renews"
-    const simplePattern = /([^\n$¥€£]{3,60}?)\s+([¥￥$€£])\s*(\d{1,6}(?:\.\d{2})?)\s/g
-    let m
-    while ((m = simplePattern.exec(bodyText)) !== null) {
-      // Only capture if "Renews" appears nearby
-      const after = bodyText.slice(m.index, m.index + m[0].length + 100)
-      if (/renews?\s+\d/i.test(after)) {
-        const appName = m[1].replace(/^.*?App Store\s*/i, '').trim()
-        if (appName.length >= 2) {
-          const symbol = m[2]
-          const amount = parseFloat(m[3])
-          const currencyMap = { '¥': 'CNY', '￥': 'CNY', '$': 'USD', '€': 'EUR', '£': 'GBP' }
-          apps.push({ appName, amount, currency: currencyMap[symbol] || 'USD', cycle: 'monthly' })
-        }
+    const renewFallback = /Renews?\s+(\d{1,2}\s+\w{3,9}\s+\d{4})/gi
+    let rm
+    while ((rm = renewFallback.exec(bodyText)) !== null) {
+      // Look for a price before "Renews"
+      const before = bodyText.slice(Math.max(0, rm.index - 300), rm.index)
+      const lastPrice = [...before.matchAll(/([¥￥$€£₹₩])\s*(\d{1,6}(?:\.\d{2})?)/g)].pop()
+      if (!lastPrice) continue
+
+      const symbol = lastPrice[1]
+      const amount = parseFloat(lastPrice[2])
+      const currency = currencyMap[symbol] || 'USD'
+
+      // Get name from before the price
+      const beforePriceText = before.slice(0, lastPrice.index)
+      const chunks = beforePriceText.split(/\s{3,}|\n|App Store/i).filter(s => s.trim().length > 1)
+      if (chunks.length === 0) continue
+
+      let appName = chunks[chunks.length - 1].trim()
+        .replace(/\s*(?:超级|连续|包月|包年|订阅|会员|Premium|Pro|Plus)\s*.*$/i, '')
+        .trim()
+
+      if (appName.length >= 2 && appName.length <= 80 && !apps.some(a => a.appName === appName)) {
+        apps.push({ appName, amount, currency, cycle: 'monthly', renewDate: null })
       }
     }
   }
@@ -1041,27 +1171,60 @@ async function extractPdfText(base64Data) {
 // ═══════════════════════════════════════════════════════
 
 /**
- * Extract line item details from a Stripe receipt body
- * Returns { itemName, amount, currency, cycle } or null
+ * Extract line item / product name from a Stripe receipt body.
+ * Returns a string (product name) or null.
+ *
+ * Stripe receipts have various formats:
+ *   "html.to.design — by ‹div›RIOTS  $120.96"
+ *   "Personal Editors  CA$40.00"
+ *   "Max plan - 20x  CA$280.00"
+ *   "Description ... Amount ... Product Name ... $XX.XX"
  */
 function extractStripeLineItem(bodyText) {
   if (!bodyText) return null
 
-  // Stripe receipts typically have a line item section with product name and price
-  // e.g., "Personal Editors CA$40.00" or "Max plan - 20x CA$280.00"
-  // or "html.to.design — by ‹div›RIOTS $120.96"
+  // Currency symbol pattern (reusable)
+  const currSym = '(?:CA\\$|A\\$|NZ\\$|HK\\$|S\\$|NT\\$|R\\$|US\\$|€|£|¥|￥|₹|₩|\\$)'
 
-  // Look for receipt section patterns
-  const lineItemPatterns = [
-    // "Product Name    $XX.XX" or "Product Name    CA$XX.XX"
-    /(?:^|\n)\s*(.{3,80}?)\s+(?:CA\$|A\$|NZ\$|HK\$|S\$|[¥￥€£$₹₩]|USD|CAD|EUR|GBP)\s?(\d{1,6}(?:\.\d{2})?)/gm,
+  // Strategy: find lines where a product name precedes a price.
+  // We try multiple patterns from most specific to least specific.
+  const patterns = [
+    // Pattern 1: "Name — by Company  $XX.XX" (Stripe plugin/marketplace format)
+    new RegExp(`([\\w][\\w\\s.\\-—–]{2,60}?)\\s+${currSym}\\s?\\d{1,6}(?:[.,]\\d{2})?`, 'gm'),
+    // Pattern 2: Near "description" or "summary" header
+    new RegExp(`(?:description|summary|item|product)[:\\s]*([^\\n]{3,80}?)\\s+${currSym}`, 'gi'),
   ]
 
-  // This is supplementary — the main extraction is extractAmountAndCurrency
-  // Here we just try to find the product/line item name
-  const itemMatch = bodyText.match(/(?:receipt|收据)[^]*?(?:\n\s*)(.{3,80}?)\s+(?:CA?\$|€|£|¥|￥)/i)
-  if (itemMatch) {
-    return itemMatch[1].trim()
+  // Collect candidate names
+  const candidates = []
+  const skipWords = ['total', 'amount', 'subtotal', 'tax', 'vat', 'discount', 'credit',
+    'paid', 'payment', 'receipt', 'invoice', 'date', 'card', 'visa', 'mastercard',
+    'billing', 'period', 'from', 'thanks', 'thank you', 'questions', 'contact',
+    'refund', 'coupon', 'promo', 'balance', 'view', 'download', 'manage']
+
+  for (const pat of patterns) {
+    let m
+    while ((m = pat.exec(bodyText)) !== null) {
+      let name = m[1].trim()
+        .replace(/\s+/g, ' ')
+        .replace(/^[-–—·•\s]+/, '')
+        .replace(/[-–—·•\s]+$/, '')
+
+      if (name.length < 3 || name.length > 70) continue
+
+      // Skip generic/boilerplate words
+      const lower = name.toLowerCase()
+      if (skipWords.some(w => lower === w || (lower.startsWith(w) && lower.length < w.length + 3))) continue
+      // Skip if it's just a number or date
+      if (/^\d+$/.test(name) || /^\w{3}\s+\d{1,2},?\s+\d{4}$/.test(name)) continue
+
+      candidates.push(name)
+    }
+  }
+
+  // Return the first non-trivial candidate (Stripe receipts put the product name early)
+  if (candidates.length > 0) {
+    return candidates[0]
   }
 
   return null
@@ -1254,8 +1417,11 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     if (freq.isRecurring) {
       passedDomains.push({ domain, emails, frequency: freq, isKnown })
     } else if (isKnown && emails.length >= 1) {
+      // Known services with even 1 billing email should pass —
+      // yearly subscriptions may only have 1 email in a 6-month window.
+      // hasBillingEvidence checks subject; we also accept any email from known domains.
       const hasBilling = emails.some(e => hasBillingEvidence(e.subject))
-      if (hasBilling) {
+      if (hasBilling || isKnown) {
         passedDomains.push({
           domain,
           emails,
@@ -1295,6 +1461,8 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     let priceResult = null // { amount, currency }
     let bodyText = ''
     let cycle = null
+    let nextDate = null
+    const lastEmailDate = newestEmail.date.toISOString()
 
     if (fullMsg) {
       bodyText = decodeBody(fullMsg.payload)
@@ -1360,6 +1528,9 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       const combinedText = `${newestEmail.subject} ${bodyText}`
       cycle = frequency.cycle || detectBillingCycle(combinedText)
       // cycle may still be null — that's OK, user will choose
+
+      // Extract next billing date from email content
+      nextDate = extractNextBillingDate(combinedText)
     }
 
     // ── Handle Apple App Store receipts: extract individual apps ──
@@ -1376,7 +1547,8 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
             currency: app.currency || 'USD',
             billing_cycle: app.cycle || cycle || null,
             status: 'active',
-            next_billing_date: null,
+            next_billing_date: app.renewDate || null,
+            last_email_date: newestEmail.date.toISOString(),
             logo_url: getLogoUrl('apple.com'),
             notes: 'Found via inbox scan (App Store)',
             _emailCount: emails.length,
@@ -1419,6 +1591,11 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     const category = knownInfo?.category || 'other'
     const logoDomain = knownInfo?.logo || (domain.startsWith('stripe:') ? (knownInfo?.matchedDomain || domain.replace('stripe:', '')) : domain)
 
+    // Estimate next billing date if not extracted from email
+    if (!nextDate && cycle) {
+      nextDate = estimateNextBillingDate(lastEmailDate, cycle)
+    }
+
     const subscription = {
       name: serviceName,
       category,
@@ -1426,7 +1603,8 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       currency: priceResult?.currency || 'USD',
       billing_cycle: cycle, // null = unknown, user will choose
       status: 'active',
-      next_billing_date: null,
+      next_billing_date: nextDate,
+      last_email_date: lastEmailDate,
       logo_url: getLogoUrl(logoDomain),
       notes: 'Found via inbox scan',
       _emailCount: emails.length,

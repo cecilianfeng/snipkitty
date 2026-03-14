@@ -152,6 +152,56 @@ export function calcMonthlyTotal(subscriptions) {
       }
     }, 0)
 }
+
+export function calcYearlyTotal(subscriptions) {
+  return subscriptions
+    .filter(s => s.status === 'active')
+    .reduce((sum, s) => {
+      switch (s.billing_cycle) {
+        case 'yearly': return sum + s.amount
+        case 'quarterly': return sum + s.amount * 4
+        case 'weekly': return sum + s.amount * 52
+        case 'monthly':
+        default: return sum + s.amount * 12
+      }
+    }, 0)
+}
+
+/** Get the monthly equivalent for a single subscription */
+export function getMonthlyEquivalent(sub) {
+  if (!sub.amount) return 0
+  switch (sub.billing_cycle) {
+    case 'yearly': return sub.amount / 12
+    case 'quarterly': return sub.amount / 3
+    case 'weekly': return sub.amount * 4.33
+    default: return sub.amount
+  }
+}
+
+/** Get the yearly equivalent for a single subscription */
+export function getYearlyEquivalent(sub) {
+  if (!sub.amount) return 0
+  switch (sub.billing_cycle) {
+    case 'yearly': return sub.amount
+    case 'quarterly': return sub.amount * 4
+    case 'weekly': return sub.amount * 52
+    case 'monthly':
+    default: return sub.amount * 12
+  }
+}
+
+/** Normalize cancelled savings to monthly equivalent */
+export function calcCancelledSavingsMonthly(subscriptions) {
+  return subscriptions
+    .filter(s => s.status === 'cancelled')
+    .reduce((sum, s) => sum + getMonthlyEquivalent(s), 0)
+}
+
+export function calcCancelledSavingsYearly(subscriptions) {
+  return subscriptions
+    .filter(s => s.status === 'cancelled')
+    .reduce((sum, s) => sum + getYearlyEquivalent(s), 0)
+}
  
 export function getUpcomingRenewals(subscriptions, withinDays = 7) {
   const now = new Date()
@@ -180,10 +230,15 @@ export const CATEGORIES = {
   'productivity': { label: 'Productivity', color: 'bg-blue-100', textColor: 'text-blue-600' },
   'cloud-storage': { label: 'Cloud Storage', color: 'bg-sky-100', textColor: 'text-sky-600' },
   'developer-tools': { label: 'Developer Tools', color: 'bg-indigo-100', textColor: 'text-indigo-600' },
+  'design': { label: 'Design & Creative', color: 'bg-rose-100', textColor: 'text-rose-600' },
   'music': { label: 'Music', color: 'bg-green-100', textColor: 'text-green-600' },
+  'gaming': { label: 'Gaming', color: 'bg-violet-100', textColor: 'text-violet-600' },
   'news': { label: 'News & Media', color: 'bg-amber-100', textColor: 'text-amber-600' },
   'health': { label: 'Health & Fitness', color: 'bg-pink-100', textColor: 'text-pink-600' },
   'education': { label: 'Education', color: 'bg-cyan-100', textColor: 'text-cyan-600' },
+  'security': { label: 'VPN & Security', color: 'bg-emerald-100', textColor: 'text-emerald-600' },
+  'social': { label: 'Social & Communication', color: 'bg-orange-100', textColor: 'text-orange-600' },
+  'hosting': { label: 'Domain & Hosting', color: 'bg-teal-100', textColor: 'text-teal-600' },
   'other': { label: 'Other', color: 'bg-gray-100', textColor: 'text-gray-600' },
 }
  
