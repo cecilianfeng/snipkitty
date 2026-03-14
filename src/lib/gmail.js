@@ -1,11 +1,11 @@
 /**
- * Gmail Inbox Scanner for SnipKitty (V3)
+ * Gmail Inbox Scanner for SnipKitty (V4)
  *
- * Strategy: Frequency Analysis
+ * Strategy: Frequency Analysis + Multi-currency + Stripe intermediary + PDF parsing
  * Phase 1: Search Gmail for billing/receipt emails (metadata only)
- * Phase 2: Group by sender root domain
+ * Phase 2: Group by sender root domain (with intermediary domain resolution)
  * Phase 3: Frequency analysis — only recurring senders pass
- * Phase 4: Fetch full email body for passing senders, extract price & details
+ * Phase 4: Fetch full email body + PDF attachments, extract price & details
  *
  * Scope: SaaS software, streaming, web/app subscriptions only.
  * Excluded: utilities, insurance, gym, physical storage, retail.
@@ -296,6 +296,10 @@ const MULTI_PRODUCT_DOMAINS = {
   ],
 }
 
+// ─── INTERMEDIARY BILLING DOMAINS ───
+// These domains send receipts on behalf of other companies (e.g., Stripe)
+const INTERMEDIARY_DOMAINS = ['stripe.com']
+
 // ─── BLOCKLIST: Non-subscription recurring senders ───
 const BLOCKLIST = [
   // Telecom / ISPs / Utilities
@@ -342,6 +346,7 @@ const BILLING_KEYWORDS = [
   'next billing', 'billing period', 'billing cycle',
   'payment confirmation', 'payment received', 'successfully charged',
   'your receipt', 'monthly charge', 'annual charge',
+  '收据', '发票', '账单', '付款', // Chinese billing keywords
 ]
 
 // ─── ONE-TIME PURCHASE KEYWORDS ───
@@ -415,6 +420,19 @@ async function getFullMessage(token, messageId) {
   return res.json()
 }
 
+/**
+ * Download email attachment by ID — returns base64 data
+ */
+async function getAttachment(token, messageId, attachmentId) {
+  const url = `${GMAIL_API}/messages/${messageId}/attachments/${attachmentId}`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  const data = await res.json()
+  return data.data // base64url encoded
+}
+
 function getHeader(message, name) {
   const header = message.payload?.headers?.find(
     h => h.name.toLowerCase() === name.toLowerCase()
@@ -443,6 +461,75 @@ function extractRootDomain(from) {
     return parts.slice(-3).join('.')
   }
   return parts.slice(-2).join('.')
+}
+
+/**
+ * Check if a domain is an intermediary billing service (like Stripe)
+ */
+function isIntermediaryDomain(domain) {
+  return INTERMEDIARY_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))
+}
+
+/**
+ * Extract the real service name from a Stripe/intermediary receipt email
+ * Patterns: "Your receipt from Framer B.V." / "来自 Framer B.V. 的收据"
+ */
+function extractIntermediaryServiceInfo(subject, bodyText) {
+  // Try subject first: "receipt from COMPANY" / "来自 COMPANY 的收据"
+  const patterns = [
+    /receipt from\s+(.+?)(?:\s*(?:#|（|\(|$))/i,
+    /来自\s+(.+?)\s*的(?:收据|账单|发票)/,
+    /from\s+(.+?),?\s*(?:PBC|Inc|LLC|Ltd|B\.V\.|GmbH|Co)?\s*(?:#|$)/i,
+  ]
+
+  for (const p of patterns) {
+    const match = subject.match(p)
+    if (match) {
+      let name = match[1].trim().replace(/[,.]$/, '').trim()
+      // Clean up suffixes
+      name = name.replace(/\s*(?:,?\s*(?:PBC|Inc|LLC|Ltd|B\.V\.|GmbH|Co\.?))\s*$/i, '').trim()
+      if (name.length > 1 && name.length < 60) return name
+    }
+  }
+
+  // Try body text for company name near top
+  if (bodyText) {
+    const bodyPatterns = [
+      /receipt from\s+(.+?)(?:\s*(?:CA?\$|US?\$|€|£|¥))/i,
+      /来自\s+(.+?)\s*的/,
+    ]
+    for (const p of bodyPatterns) {
+      const match = bodyText.match(p)
+      if (match) {
+        let name = match[1].trim().replace(/[,.]$/, '').trim()
+        name = name.replace(/\s*(?:,?\s*(?:PBC|Inc|LLC|Ltd|B\.V\.|GmbH|Co\.?))\s*$/i, '').trim()
+        if (name.length > 1 && name.length < 60) return name
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Reverse-lookup: find a known service by name
+ * Used to match intermediary-extracted names to our known list
+ */
+function findKnownServiceByName(serviceName) {
+  if (!serviceName) return null
+  const lower = serviceName.toLowerCase()
+
+  for (const [domain, info] of Object.entries(KNOWN_SUBSCRIPTIONS)) {
+    if (lower.includes(info.name.toLowerCase()) || info.name.toLowerCase().includes(lower)) {
+      return { ...info, matchedDomain: domain }
+    }
+    // Also match on domain name (e.g., "Framer" matches framer.com)
+    const domainBase = domain.split('.')[0]
+    if (lower.includes(domainBase) || domainBase.includes(lower)) {
+      return { ...info, matchedDomain: domain }
+    }
+  }
+  return null
 }
 
 /**
@@ -488,7 +575,7 @@ function matchKnownService(domain, subject) {
 }
 
 // ═══════════════════════════════════════════════════════
-// BODY DECODING & PRICE EXTRACTION
+// BODY DECODING & EXTRACTION
 // ═══════════════════════════════════════════════════════
 
 function decodeBody(payload) {
@@ -514,7 +601,6 @@ function decodeBody(payload) {
         if (part.mimeType === 'text/html' && part.body?.data) {
           try {
             const html = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'))
-            // Add spaces around block elements before stripping
             body = html
               .replace(/<\/(div|td|tr|p|li|h[1-6])>/gi, ' ')
               .replace(/<(br|hr)\s*\/?>/gi, ' ')
@@ -552,41 +638,231 @@ function decodeBody(payload) {
   return body
 }
 
-function extractAmount(text) {
-  const patterns = [
-    /(?:CA)?\$\s?(\d{1,5}\.\d{2})/g,
-    /USD\s?(\d{1,5}\.\d{2})/gi,
-    /CAD\s?(\d{1,5}\.\d{2})/gi,
-    /(\d{1,5}\.\d{2})\s?(?:USD|CAD)/gi,
+// ═══════════════════════════════════════════════════════
+// MULTI-CURRENCY AMOUNT EXTRACTION
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Extract amount AND currency from text.
+ * Supports all major world currencies.
+ * Returns { amount: number, currency: string } or null
+ */
+function extractAmountAndCurrency(text) {
+  if (!text) return null
+
+  // Currency patterns ordered from most specific to least specific
+  // Each: { regex, currency, group (capture group index for amount) }
+  const CURRENCY_RULES = [
+    // Prefixed multi-char symbols (must check before generic $)
+    { regex: /CA\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'CAD' },
+    { regex: /C\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'CAD' },
+    { regex: /A\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'AUD' },
+    { regex: /AU\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'AUD' },
+    { regex: /NZ\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'NZD' },
+    { regex: /HK\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'HKD' },
+    { regex: /S\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'SGD' },
+    { regex: /NT\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'TWD' },
+    { regex: /R\$\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'BRL' },
+    // Unicode currency symbols
+    { regex: /€\s?(\d{1,6}(?:[.,]\d{3})*(?:[.,]\d{2})?)/g, currency: 'EUR' },
+    { regex: /£\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'GBP' },
+    { regex: /[¥￥]\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'CNY' },
+    { regex: /₩\s?(\d{1,6}(?:,\d{3})*)/g, currency: 'KRW' },
+    { regex: /₹\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'INR' },
+    { regex: /₽\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'RUB' },
+    { regex: /₺\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'TRY' },
+    { regex: /₱\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'PHP' },
+    { regex: /฿\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'THB' },
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?zł/g, currency: 'PLN' },
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?Kč/g, currency: 'CZK' },
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?kr/g, currency: 'SEK' },
+    // Currency code before amount
+    { regex: /USD\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'USD' },
+    { regex: /CAD\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'CAD' },
+    { regex: /EUR\s?(\d{1,6}(?:[.,]\d{3})*(?:[.,]\d{2})?)/gi, currency: 'EUR' },
+    { regex: /GBP\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'GBP' },
+    { regex: /CHF\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'CHF' },
+    { regex: /JPY\s?(\d{1,8})/gi, currency: 'JPY' },
+    { regex: /CNY\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'CNY' },
+    { regex: /AUD\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'AUD' },
+    { regex: /SGD\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'SGD' },
+    { regex: /HKD\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'HKD' },
+    { regex: /MYR\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/gi, currency: 'MYR' },
+    { regex: /RM\s?(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/g, currency: 'MYR' },
+    // Currency code after amount
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?USD/gi, currency: 'USD' },
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?CAD/gi, currency: 'CAD' },
+    { regex: /(\d{1,6}(?:[.,]\d{3})*(?:[.,]\d{2})?)\s?EUR/gi, currency: 'EUR' },
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?GBP/gi, currency: 'GBP' },
+    { regex: /(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)\s?CHF/gi, currency: 'CHF' },
+    // Generic $ — defaults to USD (checked last)
+    { regex: /\$\s?(\d{1,6}(?:,\d{3})*\.\d{2})/g, currency: 'USD' },
   ]
 
-  const amounts = []
-  for (const pattern of patterns) {
-    let match
-    while ((match = pattern.exec(text)) !== null) {
-      const val = parseFloat(match[1])
-      if (val > 0.50 && val < 1000) { // Min $0.50 to avoid matching version numbers
-        amounts.push(val)
+  // Strategy: find amounts near "total", "amount", "paid" keywords first
+  const totalPatterns = [
+    /(?:total|amount\s*(?:due|paid|charged)?|paid|charge)[:\s]*([^\n]{3,30})/gi,
+    /(?:合计|支付额|总计|金额)[：:\s]*([^\n]{3,30})/g,
+  ]
+
+  // Collect all found amounts with their currencies
+  const found = [] // { amount, currency, priority }
+
+  // First pass: look near "total" / "amount" keywords (high priority)
+  for (const tp of totalPatterns) {
+    let tMatch
+    while ((tMatch = tp.exec(text)) !== null) {
+      const nearText = tMatch[1]
+      for (const rule of CURRENCY_RULES) {
+        const re = new RegExp(rule.regex.source, rule.regex.flags)
+        let m
+        while ((m = re.exec(nearText)) !== null) {
+          const val = parseFloat(m[1].replace(/,/g, ''))
+          if (val > 0.50 && val < 10000) {
+            found.push({ amount: val, currency: rule.currency, priority: 2 })
+          }
+        }
       }
     }
   }
 
-  if (amounts.length === 0) return null
+  // Second pass: find all amounts in the full text (lower priority)
+  for (const rule of CURRENCY_RULES) {
+    const re = new RegExp(rule.regex.source, rule.regex.flags)
+    let m
+    while ((m = re.exec(text)) !== null) {
+      const val = parseFloat(m[1].replace(/,/g, ''))
+      if (val > 0.50 && val < 10000) {
+        found.push({ amount: val, currency: rule.currency, priority: 1 })
+      }
+    }
+  }
 
+  if (found.length === 0) return null
+
+  // Pick the best result: highest priority, then most common amount
+  found.sort((a, b) => b.priority - a.priority)
+
+  // Among high-priority results, find the most common amount
+  const highPri = found.filter(f => f.priority === found[0].priority)
   const countMap = {}
-  for (const a of amounts) {
-    countMap[a] = (countMap[a] || 0) + 1
+  for (const f of highPri) {
+    const key = `${f.amount}_${f.currency}`
+    countMap[key] = (countMap[key] || 0) + 1
   }
   const sorted = Object.entries(countMap).sort((a, b) => b[1] - a[1])
-  return parseFloat(sorted[0][0])
+  const [amtStr, currStr] = sorted[0][0].split('_')
+  return { amount: parseFloat(amtStr), currency: currStr }
 }
 
+// ═══════════════════════════════════════════════════════
+// BILLING CYCLE DETECTION (4-layer)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Detect billing cycle from email text.
+ * Layer 1: Explicit keywords (annual, monthly, etc.)
+ * Layer 2: Date range analysis (Nov 1, 2025 – Nov 1, 2026)
+ * Layer 3: Return null if uncertain (let user decide)
+ */
 function detectBillingCycle(text) {
+  if (!text) return null
   const lower = text.toLowerCase()
-  if (lower.includes('annual') || lower.includes('yearly') || lower.includes('/year') || lower.includes('per year') || lower.includes('/yr') || lower.includes('12-month')) return 'yearly'
-  if (lower.includes('quarter') || lower.includes('/quarter') || lower.includes('3-month')) return 'quarterly'
-  if (lower.includes('weekly') || lower.includes('/week')) return 'weekly'
-  return 'monthly'
+
+  // Layer 1: Explicit keywords
+  // Check yearly first (more specific)
+  if (/\b(annual|annually|yearly|per\s*year|\/year|\/yr|12[\s-]month|one[\s-]year)\b/i.test(lower)) return 'yearly'
+  if (/\b(quarterly|per\s*quarter|\/quarter|every\s*3\s*months?|3[\s-]month)\b/i.test(lower)) return 'quarterly'
+  if (/\b(monthly|per\s*month|\/month|\/mo|every\s*month)\b/i.test(lower)) return 'monthly'
+  if (/\b(weekly|per\s*week|\/week)\b/i.test(lower)) return 'weekly'
+  // Chinese keywords
+  if (/年付|年费|年度|每年|一年/.test(text)) return 'yearly'
+  if (/月付|月费|每月|包月|连续包月/.test(text)) return 'monthly'
+  if (/季付|季度|每季/.test(text)) return 'quarterly'
+
+  // Layer 2: Date range analysis
+  const dateRangeCycle = detectCycleFromDateRange(text)
+  if (dateRangeCycle) return dateRangeCycle
+
+  // Layer 3: Cannot determine — return null (let user decide)
+  return null
+}
+
+/**
+ * Try to detect billing cycle from date ranges in the text
+ * e.g., "Nov 1, 2025 – Nov 1, 2026" = yearly
+ *        "Mar 9–Apr 9, 2026" = monthly
+ *        "2026年3月11日~2026年4月11日" = monthly
+ */
+function detectCycleFromDateRange(text) {
+  // English date ranges: "Start: Dec 03, 2025" + "End: Dec 03, 2026"
+  const startEnd = text.match(/start[:\s]*(\w+\s+\d{1,2},?\s+\d{4})[\s\S]{0,100}?end[:\s]*(\w+\s+\d{1,2},?\s+\d{4})/i)
+  if (startEnd) {
+    const d1 = new Date(startEnd[1])
+    const d2 = new Date(startEnd[2])
+    if (!isNaN(d1) && !isNaN(d2)) {
+      const days = (d2 - d1) / (1000 * 60 * 60 * 24)
+      return classifyDaysToCycle(days)
+    }
+  }
+
+  // Pattern: "Mon DD, YYYY – Mon DD, YYYY" or "Mon DD, YYYY - Mon DD, YYYY"
+  const rangeDash = text.match(/(\w{3,9}\s+\d{1,2},?\s+\d{4})\s*[–—\-~]\s*(\w{3,9}\s+\d{1,2},?\s+\d{4})/i)
+  if (rangeDash) {
+    const d1 = new Date(rangeDash[1])
+    const d2 = new Date(rangeDash[2])
+    if (!isNaN(d1) && !isNaN(d2)) {
+      const days = (d2 - d1) / (1000 * 60 * 60 * 24)
+      return classifyDaysToCycle(days)
+    }
+  }
+
+  // Chinese date range: "2026年3月11日~2026年4月11日" or "2026年3月11日-2026年4月11日"
+  const cnRange = text.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?\s*[~\-–—]\s*(\d{4})年(\d{1,2})月(\d{1,2})日?/)
+  if (cnRange) {
+    const d1 = new Date(cnRange[1], cnRange[2] - 1, cnRange[3])
+    const d2 = new Date(cnRange[4], cnRange[5] - 1, cnRange[6])
+    if (!isNaN(d1) && !isNaN(d2)) {
+      const days = (d2 - d1) / (1000 * 60 * 60 * 24)
+      return classifyDaysToCycle(days)
+    }
+  }
+
+  // Short date range: "Mar 9–Apr 9" (same year implied)
+  const shortRange = text.match(/(\w{3,9})\s+(\d{1,2})\s*[–—\-~]\s*(\w{3,9})\s+(\d{1,2})(?:,?\s+(\d{4}))?/)
+  if (shortRange) {
+    const year = shortRange[5] || new Date().getFullYear()
+    const d1 = new Date(`${shortRange[1]} ${shortRange[2]}, ${year}`)
+    const d2 = new Date(`${shortRange[3]} ${shortRange[4]}, ${year}`)
+    if (!isNaN(d1) && !isNaN(d2)) {
+      let days = (d2 - d1) / (1000 * 60 * 60 * 24)
+      if (days < 0) days += 365 // d2 is in next year
+      return classifyDaysToCycle(days)
+    }
+  }
+
+  // "expires on YYYY-MM-DD" combined with date from "Paid on YYYY-MM-DD"
+  const expires = text.match(/expires?\s+(?:on\s+)?(\d{4}[-/]\d{2}[-/]\d{2})/i)
+  const paidOn = text.match(/paid\s+(?:on\s+)?(\w+\s+\d{1,2},?\s+\d{4}|\d{4}[-/]\d{2}[-/]\d{2})/i)
+  if (expires && paidOn) {
+    const d1 = new Date(paidOn[1])
+    const d2 = new Date(expires[1])
+    if (!isNaN(d1) && !isNaN(d2)) {
+      const days = (d2 - d1) / (1000 * 60 * 60 * 24)
+      return classifyDaysToCycle(days)
+    }
+  }
+
+  return null
+}
+
+function classifyDaysToCycle(days) {
+  if (days >= 350 && days <= 380) return 'yearly'
+  if (days >= 85 && days <= 100) return 'quarterly'
+  if (days >= 25 && days <= 35) return 'monthly'
+  if (days >= 6 && days <= 8) return 'weekly'
+  if (days >= 170 && days <= 200) return 'semi-annual'
+  return null
 }
 
 function hasBillingEvidence(subject) {
@@ -610,7 +886,7 @@ function extractServiceName(from) {
   const nameMatch = from.match(/^"?([^"<]+)"?\s*</)
   if (nameMatch) {
     const name = nameMatch[1].trim()
-    const skip = ['noreply', 'billing', 'no-reply', 'receipt', 'support', 'payments', 'info', 'team', 'hello', 'notifications', 'mailer', 'do-not-reply', 'alert']
+    const skip = ['noreply', 'billing', 'no-reply', 'receipt', 'support', 'payments', 'info', 'team', 'hello', 'notifications', 'mailer', 'do-not-reply', 'alert', 'invoice', 'stripe']
     if (!skip.some(s => name.toLowerCase().includes(s))) {
       return name
     }
@@ -618,7 +894,7 @@ function extractServiceName(from) {
   const domainMatch = from.match(/@([^.>]+)/)
   if (domainMatch) {
     const domain = domainMatch[1]
-    const skip = ['gmail', 'yahoo', 'outlook', 'hotmail', 'mail', 'email', 'send', 'bounce']
+    const skip = ['gmail', 'yahoo', 'outlook', 'hotmail', 'mail', 'email', 'send', 'bounce', 'stripe']
     if (!skip.includes(domain.toLowerCase())) {
       return domain.charAt(0).toUpperCase() + domain.slice(1)
     }
@@ -632,7 +908,167 @@ function getLogoUrl(logoDomain) {
 }
 
 // ═══════════════════════════════════════════════════════
-// FREQUENCY ANALYSIS (core of V3)
+// APPLE APP STORE PARSING
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Extract individual app subscriptions from Apple receipt emails.
+ * Apple receipts list each app with name, price, and renewal date.
+ * Returns array of { appName, amount, currency, cycle }
+ */
+function extractAppleAppDetails(bodyText) {
+  if (!bodyText) return []
+
+  const apps = []
+
+  // Pattern: Look for "App Store" section, then find items with "Renews" (= subscription)
+  // Apple receipt body (after HTML stripping) looks like:
+  //   "App Store 全民K歌-唱歌录歌首选 超级订阅连续包月 (Monthly) ¥40.00 Renews 08 Apr 2026"
+  //   "App Store 醒图 - 拍照&修图&修live神器 醒图连续包月会员 (Monthly) ¥18.00 Renews 07 Apr 2026"
+
+  // Look for patterns with "Renews" — indicates it's a subscription
+  const renewPattern = /(.{5,80}?)\s+(?:\(Monthly\)|\(Yearly\)|\(Annual\))?\s*([¥￥$€£₹₩])\s*(\d{1,6}(?:[.,]\d{2})?)\s*(?:Renews?\s+\d{1,2}\s+\w+\s+\d{4})/gi
+  let match
+  while ((match = renewPattern.exec(bodyText)) !== null) {
+    const rawName = match[1].trim()
+    const symbol = match[2]
+    const amount = parseFloat(match[3].replace(/,/g, ''))
+
+    // Clean up the app name — remove "App Store" prefix and plan description
+    let appName = rawName
+      .replace(/^.*?App Store\s*/i, '')
+      .replace(/\s*(超级|连续|包月|包年|订阅|会员|Premium|Pro|Plus)\s*.*$/i, '')
+      .trim()
+
+    if (!appName || appName.length < 2) continue
+
+    const currencyMap = { '¥': 'CNY', '￥': 'CNY', '$': 'USD', '€': 'EUR', '£': 'GBP', '₹': 'INR', '₩': 'KRW' }
+    const currency = currencyMap[symbol] || 'USD'
+
+    // Detect cycle from nearby text
+    const nearText = match[0]
+    let cycle = null
+    if (/monthly|包月|连续包月/i.test(nearText)) cycle = 'monthly'
+    else if (/yearly|annual|包年/i.test(nearText)) cycle = 'yearly'
+
+    apps.push({ appName, amount, currency, cycle })
+  }
+
+  // Fallback: simpler pattern for receipts with less formatting
+  if (apps.length === 0) {
+    // Look for lines with a price followed by "Renews"
+    const simplePattern = /([^\n$¥€£]{3,60}?)\s+([¥￥$€£])\s*(\d{1,6}(?:\.\d{2})?)\s/g
+    let m
+    while ((m = simplePattern.exec(bodyText)) !== null) {
+      // Only capture if "Renews" appears nearby
+      const after = bodyText.slice(m.index, m.index + m[0].length + 100)
+      if (/renews?\s+\d/i.test(after)) {
+        const appName = m[1].replace(/^.*?App Store\s*/i, '').trim()
+        if (appName.length >= 2) {
+          const symbol = m[2]
+          const amount = parseFloat(m[3])
+          const currencyMap = { '¥': 'CNY', '￥': 'CNY', '$': 'USD', '€': 'EUR', '£': 'GBP' }
+          apps.push({ appName, amount, currency: currencyMap[symbol] || 'USD', cycle: 'monthly' })
+        }
+      }
+    }
+  }
+
+  return apps
+}
+
+// ═══════════════════════════════════════════════════════
+// PDF ATTACHMENT PARSING
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Find PDF attachments in a Gmail message
+ * Returns [{ attachmentId, filename }]
+ */
+function findPdfAttachments(message) {
+  const pdfs = []
+  const parts = message.payload?.parts || []
+
+  function scanParts(partList) {
+    for (const part of partList) {
+      if (part.filename && part.filename.toLowerCase().endsWith('.pdf') && part.body?.attachmentId) {
+        pdfs.push({ attachmentId: part.body.attachmentId, filename: part.filename })
+      }
+      if (part.parts) scanParts(part.parts)
+    }
+  }
+
+  scanParts(parts)
+  return pdfs
+}
+
+/**
+ * Extract text from a PDF attachment using pdf.js (lazy loaded)
+ */
+async function extractPdfText(base64Data) {
+  try {
+    // Dynamic import to keep initial bundle small
+    const pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
+
+    // Convert base64url to Uint8Array
+    const binary = atob(base64Data.replace(/-/g, '+').replace(/_/g, '/'))
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
+    let fullText = ''
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i)
+      const content = await page.getTextContent()
+      const pageText = content.items.map(item => item.str).join(' ')
+      fullText += pageText + '\n'
+    }
+
+    return fullText
+  } catch (err) {
+    console.warn('PDF parsing failed:', err)
+    return ''
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// STRIPE / INTERMEDIARY LINE ITEM EXTRACTION
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Extract line item details from a Stripe receipt body
+ * Returns { itemName, amount, currency, cycle } or null
+ */
+function extractStripeLineItem(bodyText) {
+  if (!bodyText) return null
+
+  // Stripe receipts typically have a line item section with product name and price
+  // e.g., "Personal Editors CA$40.00" or "Max plan - 20x CA$280.00"
+  // or "html.to.design — by ‹div›RIOTS $120.96"
+
+  // Look for receipt section patterns
+  const lineItemPatterns = [
+    // "Product Name    $XX.XX" or "Product Name    CA$XX.XX"
+    /(?:^|\n)\s*(.{3,80}?)\s+(?:CA\$|A\$|NZ\$|HK\$|S\$|[¥￥€£$₹₩]|USD|CAD|EUR|GBP)\s?(\d{1,6}(?:\.\d{2})?)/gm,
+  ]
+
+  // This is supplementary — the main extraction is extractAmountAndCurrency
+  // Here we just try to find the product/line item name
+  const itemMatch = bodyText.match(/(?:receipt|收据)[^]*?(?:\n\s*)(.{3,80}?)\s+(?:CA?\$|€|£|¥|￥)/i)
+  if (itemMatch) {
+    return itemMatch[1].trim()
+  }
+
+  return null
+}
+
+// ═══════════════════════════════════════════════════════
+// FREQUENCY ANALYSIS (core of V3/V4)
 // ═══════════════════════════════════════════════════════
 
 /**
@@ -709,7 +1145,8 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     'OR "your bill" OR "payment received" OR "successfully charged"',
     'OR "subscription renewed" OR "renewal" OR "auto-renew"',
     'OR "amount charged" OR "transaction" OR "monthly charge"',
-    'OR "your receipt" OR "recurring payment" OR "billing period"))',
+    'OR "your receipt" OR "recurring payment" OR "billing period"',
+    'OR 收据 OR 发票 OR 账单))',
     `newer_than:${months}m`,
     '-category:promotions',
     '-category:social',
@@ -725,12 +1162,13 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
 
   // ════════════════════════════════════════════════
   // PHASE 2: Get metadata & group by sender domain
+  //           (with intermediary domain resolution)
   // ════════════════════════════════════════════════
   if (onProgress) onProgress({ phase: 2, message: 'Analyzing senders...', current: 0, total: messages.length })
 
-  // Group: { "spotify.com": [{ id, from, subject, date }, ...] }
+  // Group: { "spotify.com": [{ id, from, subject, date, resolvedDomain?, resolvedName? }, ...] }
   const senderGroups = {}
-  const batchSize = 10 // Process in batches to avoid rate limits
+  const batchSize = 10
 
   for (let i = 0; i < messages.length; i += batchSize) {
     const batch = messages.slice(i, i + batchSize)
@@ -743,7 +1181,7 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       const from = getHeader(msg, 'From')
       const subject = getHeader(msg, 'Subject')
       const dateStr = getHeader(msg, 'Date')
-      const domain = extractRootDomain(from)
+      let domain = extractRootDomain(from)
 
       if (!domain) continue
 
@@ -753,12 +1191,35 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       // Skip one-time purchase emails
       if (hasOneTimeIndicators(subject)) continue
 
+      // Handle intermediary domains (Stripe, etc.)
+      let resolvedName = null
+      let resolvedDomain = null
+      if (isIntermediaryDomain(domain)) {
+        resolvedName = extractIntermediaryServiceInfo(subject, null)
+        if (resolvedName) {
+          // Try to find the real domain from our known list
+          const knownMatch = findKnownServiceByName(resolvedName)
+          if (knownMatch) {
+            resolvedDomain = knownMatch.matchedDomain
+            domain = resolvedDomain // group under real service domain
+          } else {
+            // Unknown service via Stripe — use sanitized name as key
+            domain = `stripe:${resolvedName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`
+          }
+        } else {
+          // Can't determine who the Stripe receipt is for — skip
+          continue
+        }
+      }
+
       if (!senderGroups[domain]) senderGroups[domain] = []
       senderGroups[domain].push({
         id: msg.id,
         from,
         subject,
         date: new Date(dateStr),
+        resolvedName,
+        resolvedDomain,
       })
     }
 
@@ -778,28 +1239,27 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
   // ════════════════════════════════════════════════
   if (onProgress) onProgress({ phase: 3, message: 'Detecting subscription patterns...', current: 0, total: domainCount })
 
-  const passedDomains = [] // Domains that pass frequency analysis
+  const passedDomains = []
 
   let analyzed = 0
   for (const [domain, emails] of Object.entries(senderGroups)) {
     analyzed++
 
-    const isKnown = matchKnownService(domain, emails[0]?.subject || '') !== null
+    const isKnown = domain.startsWith('stripe:')
+      ? findKnownServiceByName(emails[0]?.resolvedName) !== null
+      : matchKnownService(domain, emails[0]?.subject || '') !== null
     const dates = emails.map(e => e.date)
     const freq = analyzeFrequency(dates)
 
     if (freq.isRecurring) {
-      // Recurring pattern detected
       passedDomains.push({ domain, emails, frequency: freq, isKnown })
     } else if (isKnown && emails.length >= 1) {
-      // Known service with only 1 email — might be yearly or newly subscribed
-      // Check if the email subject has billing evidence
       const hasBilling = emails.some(e => hasBillingEvidence(e.subject))
       if (hasBilling) {
         passedDomains.push({
           domain,
           emails,
-          frequency: { isRecurring: false, confidence: 'low', cycle: detectBillingCycle(emails[0].subject), intervalDays: null },
+          frequency: { isRecurring: false, confidence: 'low', cycle: null, intervalDays: null },
           isKnown,
         })
       }
@@ -818,7 +1278,7 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
   }
 
   // ════════════════════════════════════════════════
-  // PHASE 4: Extract details from full email body
+  // PHASE 4: Extract details from full email body + PDF
   // ════════════════════════════════════════════════
   if (onProgress) onProgress({ phase: 4, message: 'Extracting prices...', current: 0, total: passedDomains.length })
 
@@ -832,46 +1292,146 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     const newestEmail = emails.sort((a, b) => b.date - a.date)[0]
     const fullMsg = await getFullMessage(token, newestEmail.id)
 
-    let amount = null
+    let priceResult = null // { amount, currency }
     let bodyText = ''
+    let cycle = null
 
     if (fullMsg) {
       bodyText = decodeBody(fullMsg.payload)
       const fullText = `${newestEmail.subject} ${bodyText}`
-      amount = extractAmount(fullText)
 
-      // If no price found, try second-newest email
-      if (amount === null && emails.length >= 2) {
+      // Extract price
+      priceResult = extractAmountAndCurrency(fullText)
+
+      // If no price found in body, try PDF attachment
+      if (!priceResult) {
+        const pdfs = findPdfAttachments(fullMsg)
+        for (const pdf of pdfs) {
+          try {
+            const attachData = await getAttachment(token, newestEmail.id, pdf.attachmentId)
+            if (attachData) {
+              const pdfText = await extractPdfText(attachData)
+              if (pdfText) {
+                priceResult = extractAmountAndCurrency(pdfText)
+                // Also use PDF text for cycle detection
+                if (priceResult) {
+                  bodyText = bodyText + ' ' + pdfText
+                  break
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('PDF extraction failed for', pdf.filename, err)
+          }
+        }
+      }
+
+      // If still no price, try second-newest email
+      if (!priceResult && emails.length >= 2) {
         const secondEmail = emails.sort((a, b) => b.date - a.date)[1]
         const secondMsg = await getFullMessage(token, secondEmail.id)
         if (secondMsg) {
           const secondBody = decodeBody(secondMsg.payload)
-          amount = extractAmount(`${secondEmail.subject} ${secondBody}`)
+          priceResult = extractAmountAndCurrency(`${secondEmail.subject} ${secondBody}`)
+
+          // Try PDF in second email too
+          if (!priceResult) {
+            const pdfs2 = findPdfAttachments(secondMsg)
+            for (const pdf of pdfs2) {
+              try {
+                const attachData = await getAttachment(token, secondEmail.id, pdf.attachmentId)
+                if (attachData) {
+                  const pdfText = await extractPdfText(attachData)
+                  if (pdfText) {
+                    priceResult = extractAmountAndCurrency(pdfText)
+                    if (priceResult) {
+                      bodyText = bodyText + ' ' + pdfText
+                      break
+                    }
+                  }
+                }
+              } catch (err) { /* skip */ }
+            }
+          }
         }
+      }
+
+      // Detect billing cycle (4-layer)
+      const combinedText = `${newestEmail.subject} ${bodyText}`
+      cycle = frequency.cycle || detectBillingCycle(combinedText)
+      // cycle may still be null — that's OK, user will choose
+    }
+
+    // ── Handle Apple App Store receipts: extract individual apps ──
+    const isApple = domain === 'apple.com' || domain.endsWith('.apple.com')
+    if (isApple && bodyText) {
+      const appDetails = extractAppleAppDetails(bodyText)
+      if (appDetails.length > 0) {
+        // Create a subscription item for each app
+        for (const app of appDetails) {
+          const appSub = {
+            name: `${app.appName} (App Store)`,
+            category: 'entertainment',
+            amount: app.amount || null,
+            currency: app.currency || 'USD',
+            billing_cycle: app.cycle || cycle || null,
+            status: 'active',
+            next_billing_date: null,
+            logo_url: getLogoUrl('apple.com'),
+            notes: 'Found via inbox scan (App Store)',
+            _emailCount: emails.length,
+            _confidence: frequency.confidence,
+            _domain: 'apple.com',
+          }
+          needsReview.push(appSub) // App Store items always go to review
+        }
+        // Skip the normal flow for this Apple domain
+        if (onProgress) onProgress({
+          phase: 4,
+          message: `Extracted ${appDetails.length} App Store subscriptions (${i + 1}/${passedDomains.length})`,
+          current: i + 1,
+          total: passedDomains.length,
+        })
+        continue
       }
     }
 
-    // Determine service name, category, logo
-    const knownInfo = matchKnownService(domain, newestEmail.subject)
-    const serviceName = knownInfo?.name || extractServiceName(newestEmail.from) || domain
+    // ── Determine service name, category, logo ──
+    let knownInfo = null
+    let serviceName = null
+
+    if (domain.startsWith('stripe:')) {
+      // Intermediary-resolved service
+      const resolvedName = newestEmail.resolvedName
+      knownInfo = findKnownServiceByName(resolvedName)
+      // Try to extract more specific product name from body (e.g., Figma plugin)
+      const lineItem = extractStripeLineItem(bodyText)
+      if (lineItem && lineItem.length > 2 && (!knownInfo || !lineItem.toLowerCase().includes(knownInfo.name.toLowerCase()))) {
+        serviceName = lineItem
+      } else {
+        serviceName = knownInfo?.name || resolvedName || domain.replace('stripe:', '')
+      }
+    } else {
+      knownInfo = matchKnownService(domain, newestEmail.subject)
+      serviceName = knownInfo?.name || extractServiceName(newestEmail.from) || domain
+    }
+
     const category = knownInfo?.category || 'other'
-    const logoDomain = knownInfo?.logo || domain
-    const cycle = frequency.cycle || detectBillingCycle(`${newestEmail.subject} ${bodyText}`)
+    const logoDomain = knownInfo?.logo || (domain.startsWith('stripe:') ? (knownInfo?.matchedDomain || domain.replace('stripe:', '')) : domain)
 
     const subscription = {
       name: serviceName,
       category,
-      amount: amount || null, // null = not extracted (not $0)
-      currency: 'CAD',
-      billing_cycle: cycle,
+      amount: priceResult?.amount || null,
+      currency: priceResult?.currency || 'USD',
+      billing_cycle: cycle, // null = unknown, user will choose
       status: 'active',
       next_billing_date: null,
       logo_url: getLogoUrl(logoDomain),
       notes: 'Found via inbox scan',
-      // Metadata for review UI
       _emailCount: emails.length,
       _confidence: frequency.confidence,
-      _domain: domain,
+      _domain: domain.startsWith('stripe:') ? domain.replace('stripe:', '') : domain,
     }
 
     if (isKnown && frequency.confidence !== 'low') {
@@ -879,7 +1439,6 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     } else if (isKnown && frequency.confidence === 'low') {
       needsReview.push(subscription)
     } else {
-      // Unknown service — always needs review
       needsReview.push(subscription)
     }
 

@@ -91,11 +91,28 @@ const Dashboard = () => {
     }
   }
 
+  // Update a review item's editable fields
+  const handleEditReview = (idx, field, value) => {
+    setReviewItems(prev => prev.map((item, i) => {
+      if (i !== idx) return item
+      if (field === 'amount') {
+        const num = parseFloat(value)
+        return { ...item, amount: isNaN(num) ? null : num }
+      }
+      return { ...item, [field]: value }
+    }))
+  }
+
   const handleApproveReview = async (item) => {
     try {
       const { _emailCount, _confidence, _domain, ...dbSub } = item
-      await createSubscription({ ...dbSub, amount: dbSub.amount || 0, user_id: user.id })
-      setReviewItems(prev => prev.filter(r => r.name !== item.name))
+      await createSubscription({
+        ...dbSub,
+        amount: dbSub.amount || 0,
+        billing_cycle: dbSub.billing_cycle || 'monthly',
+        user_id: user.id,
+      })
+      setReviewItems(prev => prev.filter(r => r !== item))
       await loadSubscriptions()
     } catch (err) {
       console.warn('Failed to add:', item.name, err)
@@ -103,7 +120,7 @@ const Dashboard = () => {
   }
 
   const handleDismissReview = (item) => {
-    setReviewItems(prev => prev.filter(r => r.name !== item.name))
+    setReviewItems(prev => prev.filter(r => r !== item))
   }
 
   // Calculate stats
@@ -234,38 +251,91 @@ const Dashboard = () => {
             <div className="max-w-2xl mx-auto mt-8 text-left">
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
                 <h3 className="font-semibold text-orange-800 mb-3">Possible subscriptions — please confirm</h3>
-                <div className="space-y-2">
+                <p className="text-xs text-orange-600 mb-3">You can edit name, amount, and billing cycle before adding.</p>
+                <div className="space-y-3">
                   {reviewItems.map((item, idx) => (
-                    <div key={idx} className="bg-white rounded-lg p-3 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {item.logo_url ? (
-                          <img src={item.logo_url} alt={item.name} className="w-8 h-8 rounded-full" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-sm">
-                            {item.name?.charAt(0) || '?'}
+                    <div key={idx} className="bg-white rounded-lg p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          {item.logo_url ? (
+                            <img src={item.logo_url} alt={item.name} className="w-8 h-8 rounded-full mt-1 flex-shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-sm mt-1 flex-shrink-0">
+                              {item.name?.charAt(0) || '?'}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <input
+                              type="text"
+                              value={item.name || ''}
+                              onChange={(e) => handleEditReview(idx, 'name', e.target.value)}
+                              className="font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-orange-400 focus:outline-none w-full text-sm"
+                            />
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
+                            </p>
+                            <div className="flex items-center gap-2 mt-2">
+                              <span className="text-xs text-gray-500">Amount:</span>
+                              <select
+                                value={item.currency || 'USD'}
+                                onChange={(e) => handleEditReview(idx, 'currency', e.target.value)}
+                                className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-gray-50"
+                              >
+                                <option value="USD">$</option>
+                                <option value="CAD">CA$</option>
+                                <option value="CNY">¥</option>
+                                <option value="EUR">€</option>
+                                <option value="GBP">£</option>
+                                <option value="AUD">A$</option>
+                                <option value="JPY">¥</option>
+                                <option value="KRW">₩</option>
+                                <option value="INR">₹</option>
+                                <option value="SGD">S$</option>
+                                <option value="HKD">HK$</option>
+                                <option value="TWD">NT$</option>
+                                <option value="MYR">RM</option>
+                                <option value="CHF">CHF</option>
+                                <option value="BRL">R$</option>
+                                <option value="SEK">kr</option>
+                              </select>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={item.amount ?? ''}
+                                onChange={(e) => handleEditReview(idx, 'amount', e.target.value)}
+                                placeholder="—"
+                                className="w-20 text-xs border border-gray-200 rounded px-2 py-0.5 bg-gray-50 text-right"
+                              />
+                              <span className="text-xs text-gray-400">/</span>
+                              <select
+                                value={item.billing_cycle || ''}
+                                onChange={(e) => handleEditReview(idx, 'billing_cycle', e.target.value)}
+                                className={`text-xs border rounded px-1 py-0.5 ${item.billing_cycle ? 'border-gray-200 bg-gray-50' : 'border-orange-300 bg-orange-50 text-orange-700'}`}
+                              >
+                                <option value="">Select cycle</option>
+                                <option value="monthly">monthly</option>
+                                <option value="quarterly">quarterly</option>
+                                <option value="yearly">yearly</option>
+                                <option value="weekly">weekly</option>
+                              </select>
+                            </div>
                           </div>
-                        )}
-                        <div>
-                          <p className="font-medium text-gray-900">{item.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
-                            {item.amount ? ` · $${item.amount.toFixed(2)}/${item.billing_cycle}` : ''}
-                          </p>
                         </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleApproveReview(item)}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200"
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => handleDismissReview(item)}
-                          className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200"
-                        >
-                          Skip
-                        </button>
+                        <div className="flex gap-2 flex-shrink-0 mt-1">
+                          <button
+                            onClick={() => handleApproveReview(item)}
+                            className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200"
+                          >
+                            Add
+                          </button>
+                          <button
+                            onClick={() => handleDismissReview(item)}
+                            className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200"
+                          >
+                            Skip
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -386,38 +456,91 @@ const Dashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
           <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
             <h3 className="font-semibold text-orange-800 mb-3">Possible subscriptions — please confirm</h3>
-            <div className="space-y-2">
+            <p className="text-xs text-orange-600 mb-3">You can edit name, amount, and billing cycle before adding.</p>
+            <div className="space-y-3">
               {reviewItems.map((item, idx) => (
-                <div key={idx} className="bg-white rounded-lg p-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {item.logo_url ? (
-                      <img src={item.logo_url} alt={item.name} className="w-8 h-8 rounded-full" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-sm">
-                        {item.name?.charAt(0) || '?'}
+                <div key={idx} className="bg-white rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      {item.logo_url ? (
+                        <img src={item.logo_url} alt={item.name} className="w-8 h-8 rounded-full mt-1 flex-shrink-0" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-sm mt-1 flex-shrink-0">
+                          {item.name?.charAt(0) || '?'}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="text"
+                          value={item.name || ''}
+                          onChange={(e) => handleEditReview(idx, 'name', e.target.value)}
+                          className="font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-orange-400 focus:outline-none w-full text-sm"
+                        />
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-gray-500">Amount:</span>
+                          <select
+                            value={item.currency || 'USD'}
+                            onChange={(e) => handleEditReview(idx, 'currency', e.target.value)}
+                            className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-gray-50"
+                          >
+                            <option value="USD">$</option>
+                            <option value="CAD">CA$</option>
+                            <option value="CNY">¥</option>
+                            <option value="EUR">€</option>
+                            <option value="GBP">£</option>
+                            <option value="AUD">A$</option>
+                            <option value="JPY">¥</option>
+                            <option value="KRW">₩</option>
+                            <option value="INR">₹</option>
+                            <option value="SGD">S$</option>
+                            <option value="HKD">HK$</option>
+                            <option value="TWD">NT$</option>
+                            <option value="MYR">RM</option>
+                            <option value="CHF">CHF</option>
+                            <option value="BRL">R$</option>
+                            <option value="SEK">kr</option>
+                          </select>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.amount ?? ''}
+                            onChange={(e) => handleEditReview(idx, 'amount', e.target.value)}
+                            placeholder="—"
+                            className="w-20 text-xs border border-gray-200 rounded px-2 py-0.5 bg-gray-50 text-right"
+                          />
+                          <span className="text-xs text-gray-400">/</span>
+                          <select
+                            value={item.billing_cycle || ''}
+                            onChange={(e) => handleEditReview(idx, 'billing_cycle', e.target.value)}
+                            className={`text-xs border rounded px-1 py-0.5 ${item.billing_cycle ? 'border-gray-200 bg-gray-50' : 'border-orange-300 bg-orange-50 text-orange-700'}`}
+                          >
+                            <option value="">Select cycle</option>
+                            <option value="monthly">monthly</option>
+                            <option value="quarterly">quarterly</option>
+                            <option value="yearly">yearly</option>
+                            <option value="weekly">weekly</option>
+                          </select>
+                        </div>
                       </div>
-                    )}
-                    <div>
-                      <p className="font-medium text-gray-900">{item.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
-                        {item.amount ? ` · $${item.amount.toFixed(2)}/${item.billing_cycle}` : ''}
-                      </p>
                     </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleApproveReview(item)}
-                      className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200"
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => handleDismissReview(item)}
-                      className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200"
-                    >
-                      Skip
-                    </button>
+                    <div className="flex gap-2 flex-shrink-0 mt-1">
+                      <button
+                        onClick={() => handleApproveReview(item)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200"
+                      >
+                        Add
+                      </button>
+                      <button
+                        onClick={() => handleDismissReview(item)}
+                        className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200"
+                      >
+                        Skip
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -561,7 +684,9 @@ const Dashboard = () => {
                   <div className="text-right min-w-20">
                     <p className="text-sm text-gray-600">Price</p>
                     <p className="font-semibold text-gray-900">
-                      {Number(sub.amount) > 0 ? `$${Number(sub.amount).toFixed(2)}` : '—'}
+                      {Number(sub.amount) > 0
+                        ? `${sub.currency && sub.currency !== 'USD' ? sub.currency + ' ' : '$'}${Number(sub.amount).toFixed(2)}`
+                        : '—'}
                     </p>
                   </div>
 
