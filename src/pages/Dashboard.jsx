@@ -80,11 +80,17 @@ const Dashboard = () => {
         (progress) => setScanProgress(progress),
         { months: scanMonths }
       )
-      // Save confirmed subscriptions (skip duplicates by name)
-      const existingNames = new Set(subscriptions.map(s => s.name.toLowerCase()))
+      // Save confirmed subscriptions — add new ones, update existing ones with fresh dates
+      const existingByName = {}
+      for (const s of subscriptions) {
+        existingByName[s.name.toLowerCase()] = s
+      }
       let addedCount = 0
+      let updatedCount = 0
       for (const sub of confirmed) {
-        if (!existingNames.has(sub.name.toLowerCase())) {
+        const existing = existingByName[sub.name.toLowerCase()]
+        if (!existing) {
+          // New subscription — create it
           try {
             const { _emailCount, _confidence, _domain, ...dbSub } = sub
             await createSubscription({ ...dbSub, amount: dbSub.amount || 0, user_id: user.id })
@@ -92,13 +98,44 @@ const Dashboard = () => {
           } catch (err) {
             console.warn('Failed to add:', sub.name, err)
           }
+        } else {
+          // Existing subscription — update dates, amount, and cycle if we have better data
+          try {
+            const updates = {}
+            if (sub.last_email_date) updates.last_email_date = sub.last_email_date
+            if (sub.next_billing_date && !existing.next_billing_date) updates.next_billing_date = sub.next_billing_date
+            if (sub.billing_cycle && !existing.billing_cycle) updates.billing_cycle = sub.billing_cycle
+            if (Object.keys(updates).length > 0) {
+              await updateSubscription(existing.id, updates)
+              updatedCount++
+            }
+          } catch (err) {
+            console.warn('Failed to update:', sub.name, err)
+          }
+        }
+      }
+      // Also update existing subs that match review items (by domain)
+      for (const sub of needsReview) {
+        const existing = existingByName[sub.name.toLowerCase()]
+        if (existing) {
+          try {
+            const updates = {}
+            if (sub.last_email_date) updates.last_email_date = sub.last_email_date
+            if (sub.next_billing_date && !existing.next_billing_date) updates.next_billing_date = sub.next_billing_date
+            if (Object.keys(updates).length > 0) {
+              await updateSubscription(existing.id, updates)
+              updatedCount++
+            }
+          } catch (err) { /* skip */ }
         }
       }
       await loadSubscriptions()
-      // Set review items for user confirmation
-      const reviewFiltered = needsReview.filter(s => !existingNames.has(s.name.toLowerCase()))
+      // Set review items for user confirmation (only truly new ones)
+      const refreshedSubs = await getSubscriptions(user.id)
+      const refreshedNames = new Set(refreshedSubs.map(s => s.name.toLowerCase()))
+      const reviewFiltered = needsReview.filter(s => !refreshedNames.has(s.name.toLowerCase()))
       setReviewItems(reviewFiltered)
-      setScanResult({ addedCount, confirmedTotal: confirmed.length, reviewCount: reviewFiltered.length })
+      setScanResult({ addedCount, updatedCount, confirmedTotal: confirmed.length, reviewCount: reviewFiltered.length })
     } catch (err) {
       console.error('Scan failed:', err)
       setScanResult({ error: err.message })
@@ -289,7 +326,7 @@ const Dashboard = () => {
             {scanResult && !scanResult.error && (
               <p className="text-sm text-green-600 flex items-center gap-1">
                 <CheckCircle size={16} />
-                Added {scanResult.addedCount} subscription{scanResult.addedCount !== 1 ? 's' : ''}.
+                Added {scanResult.addedCount} new{scanResult.updatedCount > 0 ? `, updated ${scanResult.updatedCount} existing` : ''}.
                 {scanResult.reviewCount > 0 && ` ${scanResult.reviewCount} need your review.`}
               </p>
             )}
@@ -491,7 +528,7 @@ const Dashboard = () => {
               ) : (
                 <>
                   <CheckCircle size={16} />
-                  Scan complete! Added {scanResult.addedCount} confirmed subscription{scanResult.addedCount !== 1 ? 's' : ''}.
+                  Scan complete! Added {scanResult.addedCount} new{scanResult.updatedCount > 0 ? `, updated ${scanResult.updatedCount} existing` : ''}.
                   {scanResult.reviewCount > 0 && ` ${scanResult.reviewCount} item${scanResult.reviewCount !== 1 ? 's' : ''} need your review below.`}
                 </>
               )}
