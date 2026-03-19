@@ -44,7 +44,7 @@ const Dashboard = () => {
   const [scanning, setScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState({ phase: 0, message: '', current: 0, total: 0 })
   const [scanResult, setScanResult] = useState(null) // { confirmed, needsReview, addedCount } or { error }
-  const [scanMonths, setScanMonths] = useState(6)
+  const [scanMonths, setScanMonths] = useState(36)
   const [reviewItems, setReviewItems] = useState([]) // items needing user confirmation
 
   useEffect(() => {
@@ -309,10 +309,10 @@ const Dashboard = () => {
                 disabled={scanning}
                 className="px-3 py-3 border border-gray-300 rounded-xl text-sm font-medium text-gray-700"
               >
-                <option value={3}>3 months</option>
                 <option value={6}>6 months</option>
                 <option value={12}>12 months</option>
                 <option value={24}>24 months</option>
+                <option value={36}>3 years</option>
               </select>
               <button
                 onClick={handleScanInbox}
@@ -496,10 +496,10 @@ const Dashboard = () => {
               disabled={scanning}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700"
             >
-              <option value={3}>3 mo</option>
               <option value={6}>6 mo</option>
               <option value={12}>12 mo</option>
               <option value={24}>24 mo</option>
+              <option value={36}>3 yr</option>
             </select>
             <button
               onClick={handleScanInbox}
