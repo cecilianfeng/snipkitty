@@ -315,6 +315,103 @@ const MULTI_PRODUCT_DOMAINS = {
 // These domains send receipts on behalf of other companies (e.g., Stripe)
 const INTERMEDIARY_DOMAINS = ['stripe.com']
 
+// ─── PLATFORM DOMAINS: services where we need sub-product/creator name ───
+// These are platforms where users subscribe to specific content/creators/plugins,
+// not just the platform itself. We extract the specific name to show:
+// "Lenny's Newsletter (via Substack)" instead of just "Substack"
+const PLATFORM_DOMAINS = {
+  'substack.com': {
+    platform: 'Substack',
+    category: 'news',
+    logo: 'substack.com',
+    // Extract creator name from From header: "Lenny's Newsletter <lenny@substack.com>"
+    extractFromHeader: true,
+    // Extract from subject: "Your payment receipt from Lenny's Newsletter"
+    subjectPatterns: [
+      /receipt from\s+(.+?)(?:\s*#|\s*$)/i,
+      /from\s+(.+?)(?:'s Newsletter|'s Podcast|\s*#|\s*$)/i,
+    ],
+  },
+  'patreon.com': {
+    platform: 'Patreon',
+    category: 'social',
+    logo: 'patreon.com',
+    extractFromHeader: true,
+    subjectPatterns: [
+      /receipt.*?from\s+(.+?)(?:\s*$|\s*#)/i,
+      /(?:pledge|subscription)\s+(?:to|for)\s+(.+?)(?:\s*$|\s*#)/i,
+    ],
+  },
+  'medium.com': {
+    platform: 'Medium',
+    category: 'news',
+    logo: 'medium.com',
+    extractFromHeader: false,
+    subjectPatterns: [], // Medium membership is platform-wide, no sub-product
+  },
+  'buymeacoffee.com': {
+    platform: 'Buy Me a Coffee',
+    category: 'social',
+    logo: 'buymeacoffee.com',
+    extractFromHeader: true,
+    subjectPatterns: [
+      /membership.*?for\s+(.+?)(?:\s*$)/i,
+    ],
+  },
+}
+
+/**
+ * Extract sub-product/creator name from platform domain emails.
+ * Returns specific name or null (falls back to platform name).
+ */
+function extractPlatformSubName(domain, from, subject, bodyText) {
+  const platformInfo = PLATFORM_DOMAINS[domain]
+  if (!platformInfo) return null
+
+  // Strategy 1: Extract from "From" header display name
+  // e.g., "Lenny's Newsletter <lenny@substack.com>" → "Lenny's Newsletter"
+  if (platformInfo.extractFromHeader) {
+    const nameMatch = from.match(/^"?([^"<]+)"?\s*</)
+    if (nameMatch) {
+      const displayName = nameMatch[1].trim()
+      // Skip if it's just the platform name or generic words
+      const skip = ['noreply', 'billing', 'no-reply', 'receipt', 'support', 'payments',
+        'team', 'hello', 'notifications', platformInfo.platform.toLowerCase()]
+      if (!skip.some(s => displayName.toLowerCase().includes(s)) && displayName.length > 1) {
+        return displayName
+      }
+    }
+  }
+
+  // Strategy 2: Extract from subject using platform-specific patterns
+  for (const pattern of platformInfo.subjectPatterns) {
+    const match = subject.match(pattern)
+    if (match) {
+      let name = match[1].trim()
+        .replace(/[#\-–—]\s*\d+.*$/, '') // remove invoice numbers
+        .replace(/\s*(?:Inc|LLC|Ltd|B\.V\.).*$/i, '')
+        .trim()
+      if (name.length > 1 && name.length < 80) return name
+    }
+  }
+
+  // Strategy 3: Extract from body — "Receipt from [Name]"
+  if (bodyText) {
+    const bodyPatterns = [
+      /receipt from\s+(.+?)(?:\s*Thank|\s*$|\.\s)/im,
+    ]
+    for (const p of bodyPatterns) {
+      const match = bodyText.match(p)
+      if (match) {
+        let name = match[1].trim().replace(/[.,]$/, '').trim()
+        if (name.length > 1 && name.length < 80) return name
+      }
+    }
+  }
+
+  return null
+}
+
 // ─── BLOCKLIST: Non-subscription recurring senders ───
 const BLOCKLIST = [
   // Telecom / ISPs / Utilities
@@ -1487,6 +1584,19 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
         }
       }
 
+      // Handle platform domains (Substack, Patreon, etc.)
+      // Group by specific sender within the platform, not just the platform domain.
+      // e.g., lenny@substack.com and another@substack.com become separate groups.
+      if (PLATFORM_DOMAINS[domain]) {
+        // Extract the specific email sender (before @) to create sub-groups
+        const emailMatch = from.match(/<([^@]+)@/)
+        if (emailMatch) {
+          const senderUser = emailMatch[1].toLowerCase()
+          // Use "platform:sender" as the group key
+          domain = `${domain}:${senderUser}`
+        }
+      }
+
       if (!senderGroups[domain]) senderGroups[domain] = []
       senderGroups[domain].push({
         id: msg.id,
@@ -1520,9 +1630,11 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
   for (const [domain, emails] of Object.entries(senderGroups)) {
     analyzed++
 
+    // Extract the base domain for matching (strip platform:sender and stripe: prefixes)
+    const baseDomain = domain.includes(':') ? domain.split(':')[0] : domain
     const isKnown = domain.startsWith('stripe:')
       ? findKnownServiceByName(emails[0]?.resolvedName) !== null
-      : matchKnownService(domain, emails[0]?.subject || '') !== null
+      : (PLATFORM_DOMAINS[baseDomain] != null) || matchKnownService(baseDomain, emails[0]?.subject || '') !== null
     const dates = emails.map(e => e.date)
     const freq = analyzeFrequency(dates)
 
@@ -1698,6 +1810,11 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     let knownInfo = null
     let serviceName = null
 
+    // Get base domain (strip platform:sender prefix like "substack.com:lenny")
+    const lookupDomain = domain.includes(':') && !domain.startsWith('stripe:')
+      ? domain.split(':')[0]
+      : domain
+
     if (domain.startsWith('stripe:')) {
       // Intermediary-resolved service
       const resolvedName = newestEmail.resolvedName
@@ -1705,17 +1822,33 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       // Try to extract more specific product name from body (e.g., Figma plugin)
       const lineItem = extractStripeLineItem(bodyText)
       if (lineItem && lineItem.length > 2 && (!knownInfo || !lineItem.toLowerCase().includes(knownInfo.name.toLowerCase()))) {
-        serviceName = lineItem
+        // Show as "html.to.design (via Figma)" if we know the parent service
+        const parentName = knownInfo?.name || resolvedName
+        serviceName = parentName ? `${lineItem} (via ${parentName})` : lineItem
       } else {
         serviceName = knownInfo?.name || resolvedName || domain.replace('stripe:', '')
       }
+    } else if (PLATFORM_DOMAINS[lookupDomain]) {
+      // Platform domain — extract specific creator/product name
+      const platformInfo = PLATFORM_DOMAINS[lookupDomain]
+      knownInfo = matchKnownService(lookupDomain, newestEmail.subject) || {
+        name: platformInfo.platform,
+        category: platformInfo.category,
+        logo: platformInfo.logo,
+      }
+      const subName = extractPlatformSubName(lookupDomain, newestEmail.from, newestEmail.subject, bodyText)
+      if (subName) {
+        serviceName = `${subName} (via ${platformInfo.platform})`
+      } else {
+        serviceName = platformInfo.platform
+      }
     } else {
-      knownInfo = matchKnownService(domain, newestEmail.subject)
-      serviceName = knownInfo?.name || extractServiceName(newestEmail.from) || domain
+      knownInfo = matchKnownService(lookupDomain, newestEmail.subject)
+      serviceName = knownInfo?.name || extractServiceName(newestEmail.from) || lookupDomain
     }
 
     const category = knownInfo?.category || 'other'
-    const logoDomain = knownInfo?.logo || (domain.startsWith('stripe:') ? (knownInfo?.matchedDomain || domain.replace('stripe:', '')) : domain)
+    const logoDomain = knownInfo?.logo || (domain.startsWith('stripe:') ? (knownInfo?.matchedDomain || domain.replace('stripe:', '')) : lookupDomain)
 
     // Estimate next billing date if not extracted from email
     if (!nextDate && cycle) {
@@ -1760,7 +1893,7 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       notes: noteText,
       _emailCount: emails.length,
       _confidence: frequency.confidence,
-      _domain: domain.startsWith('stripe:') ? domain.replace('stripe:', '') : domain,
+      _domain: lookupDomain.startsWith('stripe:') ? lookupDomain.replace('stripe:', '') : lookupDomain,
       _singleEmail: isSingleEmail && !frequency.isRecurring,
       _isPending: isPending,
     }
