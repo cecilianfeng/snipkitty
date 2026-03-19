@@ -6,6 +6,7 @@
  * Phase 2: Group by sender root domain (with intermediary domain resolution)
  * Phase 3: Frequency analysis — recurring senders + unknown brands with billing evidence pass
  * Phase 4: Fetch full email body + PDF attachments, extract price & details
+ * Phase 4.5: AI-enhanced analysis for unknown brands and missing data
  *
  * V6 changes:
  * - Expanded search keywords (membership, tax invoice, subscription confirmation, etc.)
@@ -15,10 +16,14 @@
  * - Better Apple App Store parsing (Subscription Renewal + Receipt formats)
  * - Single-email services flagged for user confirmation
  * - "Pending/upcoming" status for subscriptions not yet charged
+ * - Apple App Store: reads 5 most recent emails to capture multiple different apps
+ * - Phase 4.5: AI analysis via Claude for unknown/low-confidence subscriptions
  *
  * Scope: SaaS software, streaming, web/app subscriptions only.
  * Excluded: utilities, insurance, gym, physical storage, retail.
  */
+
+import { runAIAnalysis } from './ai-analysis.js'
 
 const GMAIL_API = 'https://www.googleapis.com/gmail/v1/users/me'
 
@@ -1792,6 +1797,7 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
 
   const confirmed = []
   const needsReview = []
+  const reviewEmailData = new Map() // reviewIndex → { subject, bodyText, from, domain } for AI
 
   for (let i = 0; i < passedDomains.length; i++) {
     const { domain, emails, frequency, isKnown, _unknownWithBilling } = passedDomains[i]
@@ -1877,34 +1883,65 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       nextDate = extractNextBillingDate(combinedText)
     }
 
-    // ── Handle Apple App Store receipts: extract individual apps ──
+    // ── Handle Apple App Store receipts: extract individual apps from 5 most recent emails ──
     const isApple = domain === 'apple.com' || domain.endsWith('.apple.com')
-    if (isApple && bodyText) {
-      const appDetails = extractAppleAppDetails(bodyText)
-      if (appDetails.length > 0) {
-        // Create a subscription item for each app
+    if (isApple) {
+      // Get up to 5 most recent emails to capture multiple different app subscriptions
+      const recentEmails = emails.sort((a, b) => b.date - a.date).slice(0, 5)
+      const allAppDetails = {}
+
+      for (const appleEmail of recentEmails) {
+        const appleMsg = await getFullMessage(token, appleEmail.id)
+        if (!appleMsg) continue
+
+        const appleBodyText = decodeBody(appleMsg.payload)
+        if (!appleBodyText) continue
+
+        const appDetails = extractAppleAppDetails(appleBodyText)
         for (const app of appDetails) {
-          const appSub = {
-            name: `${app.appName} (App Store)`,
-            category: 'entertainment',
+          // Use app name as key to avoid duplicates, but store with most recent data
+          allAppDetails[app.appName] = {
+            appName: app.appName,
             amount: app.amount || null,
             currency: app.currency || 'USD',
-            billing_cycle: app.cycle || cycle || null,
+            cycle: app.cycle || null,
+            renewDate: app.renewDate || null,
+            lastSeen: appleEmail.date.toISOString(),
+          }
+        }
+      }
+
+      if (Object.keys(allAppDetails).length > 0) {
+        // Create a subscription item for each unique app
+        for (const appData of Object.values(allAppDetails)) {
+          const appSub = {
+            name: `${appData.appName} (App Store)`,
+            category: 'entertainment',
+            amount: appData.amount || null,
+            currency: appData.currency || 'USD',
+            billing_cycle: appData.cycle || cycle || null,
             status: 'active',
-            next_billing_date: app.renewDate || null,
-            last_email_date: newestEmail.date.toISOString(),
+            next_billing_date: appData.renewDate || null,
+            last_email_date: appData.lastSeen,
             logo_url: getLogoUrl('apple.com'),
             notes: 'Found via inbox scan (App Store)',
             _emailCount: emails.length,
             _confidence: frequency.confidence,
             _domain: 'apple.com',
           }
+          const appReviewIdx = needsReview.length
           needsReview.push(appSub) // App Store items always go to review
+          reviewEmailData.set(appReviewIdx, {
+            subject: newestEmail.subject || '',
+            bodyText: bodyText || '',
+            from: newestEmail.from || '',
+            domain: 'apple.com',
+          })
         }
         // Skip the normal flow for this Apple domain
         if (onProgress) onProgress({
           phase: 4,
-          message: `Extracted ${appDetails.length} App Store subscriptions (${i + 1}/${passedDomains.length})`,
+          message: `Extracted ${Object.keys(allAppDetails).length} App Store subscriptions (${i + 1}/${passedDomains.length})`,
           current: i + 1,
           total: passedDomains.length,
         })
@@ -2009,7 +2046,15 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     } else {
       // Low confidence, unknown brands with billing evidence, single-email, or pending
       // all go to needsReview for user confirmation
+      const reviewIdx = needsReview.length
       needsReview.push(subscription)
+      // Save email data for AI analysis in Phase 4.5
+      reviewEmailData.set(reviewIdx, {
+        subject: newestEmail.subject || '',
+        bodyText: bodyText || '',
+        from: newestEmail.from || '',
+        domain: lookupDomain || domain,
+      })
     }
 
     if (onProgress) onProgress({
@@ -2018,6 +2063,25 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       current: i + 1,
       total: passedDomains.length,
     })
+  }
+
+  // ════════════════════════════════════════════════
+  // PHASE 4.5: AI verification & filtering (optional)
+  // ════════════════════════════════════════════════
+  // Send ALL needsReview items to Claude AI to:
+  // 1. Filter out non-subscriptions (retail, camps, clothing, etc.)
+  // 2. Extract missing amounts, currencies, billing cycles
+  // 3. Detect cancelled status from email content
+  try {
+    if (needsReview.length > 0 && reviewEmailData.size > 0) {
+      const filteredReview = await runAIAnalysis(needsReview, reviewEmailData, onProgress)
+      // Replace needsReview with AI-filtered results
+      needsReview.length = 0
+      needsReview.push(...filteredReview)
+    }
+  } catch (aiError) {
+    // AI phase is optional — don't let it break the main flow
+    console.warn('Phase 4.5 AI analysis error (continuing without AI):', aiError)
   }
 
   return { confirmed, needsReview }
