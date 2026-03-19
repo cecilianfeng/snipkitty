@@ -1,11 +1,20 @@
 /**
- * Gmail Inbox Scanner for SnipKitty (V4)
+ * Gmail Inbox Scanner for SnipKitty (V6)
  *
  * Strategy: Frequency Analysis + Multi-currency + Stripe intermediary + PDF parsing
- * Phase 1: Search Gmail for billing/receipt emails (metadata only)
+ * Phase 1: Search Gmail for billing/receipt/membership emails (metadata only, 3yr range)
  * Phase 2: Group by sender root domain (with intermediary domain resolution)
- * Phase 3: Frequency analysis — only recurring senders pass
+ * Phase 3: Frequency analysis — recurring senders + unknown brands with billing evidence pass
  * Phase 4: Fetch full email body + PDF attachments, extract price & details
+ *
+ * V6 changes:
+ * - Expanded search keywords (membership, tax invoice, subscription confirmation, etc.)
+ * - 3-year scan range (was 6 months) for better yearly detection
+ * - Unknown brands with billing evidence now detected (not just known list)
+ * - Improved frequency analysis with median-based interval detection
+ * - Better Apple App Store parsing (Subscription Renewal + Receipt formats)
+ * - Single-email services flagged for user confirmation
+ * - "Pending/upcoming" status for subscriptions not yet charged
  *
  * Scope: SaaS software, streaming, web/app subscriptions only.
  * Excluded: utilities, insurance, gym, physical storage, retail.
@@ -145,6 +154,7 @@ const KNOWN_SUBSCRIPTIONS = {
   'sendgrid.com':      { name: 'SendGrid', category: 'developer-tools', logo: 'sendgrid.com' },
 
   // ── Design & Creative ──
+  'brandcrowd.com':    { name: 'BrandCrowd', category: 'design', logo: 'brandcrowd.com' },
   'sketch.com':        { name: 'Sketch', category: 'design', logo: 'sketch.com' },
   'invisionapp.com':   { name: 'InVision', category: 'design', logo: 'invisionapp.com' },
   'framer.com':        { name: 'Framer', category: 'design', logo: 'framer.com' },
@@ -354,7 +364,10 @@ const BILLING_KEYWORDS = [
   'subscription', 'plan', 'charge', 'order', 'confirmation',
   'annual plan', 'yearly plan', 'membership', 'premium',
   'pro plan', 'team plan', 'business plan', 'starter plan',
-  '收据', '发票', '账单', '付款', // Chinese billing keywords
+  'tax invoice', 'your membership', 'welcome to your',
+  'subscription confirmation', 'paid subscription', 'renew each',
+  'auto-renewal', 'auto renewing', 'order receipt',
+  '收据', '发票', '账单', '付款', '订阅', '会员', '续费', // Chinese billing keywords
 ]
 
 // ─── ONE-TIME PURCHASE KEYWORDS ───
@@ -1007,9 +1020,12 @@ function getLogoUrl(logoDomain) {
 // ═══════════════════════════════════════════════════════
 
 /**
- * Extract individual app subscriptions from Apple receipt emails.
- * Apple receipts list each app with name, price, and renewal date.
- * Returns array of { appName, amount, currency, cycle }
+ * Extract individual app subscriptions from Apple receipt/renewal emails.
+ * Handles multiple Apple email formats:
+ *   1. "Subscription Renewal" emails with app icon + name + price + renewal date
+ *   2. "Receipt" emails with App Store line items
+ *   3. Generic Apple billing with price + Renews pattern
+ * Returns array of { appName, amount, currency, cycle, renewDate }
  */
 function extractAppleAppDetails(bodyText) {
   if (!bodyText) return []
@@ -1017,15 +1033,75 @@ function extractAppleAppDetails(bodyText) {
   const apps = []
   const currencyMap = { '¥': 'CNY', '￥': 'CNY', '$': 'USD', '€': 'EUR', '£': 'GBP', '₹': 'INR', '₩': 'KRW' }
 
-  // Apple receipt emails after HTML stripping may look like many different formats.
-  // Common patterns (spaces collapsed):
-  //   "App Store 全民K歌-唱歌录歌首选 超级订阅连续包月 (Monthly) ¥40.00 Renews 08 Apr 2026"
-  //   "全民K歌  ¥40.00  Renews 08 Apr 2026"
-  //   "App Name  Subscription Plan  $X.XX  Renews DD Mon YYYY"
-  //   Or in table-like format after HTML parsing
+  // ── Pattern 0: "Subscription Renewal" format ──
+  // Apple sends emails like:
+  //   "全民K歌-唱歌录歌首选 ... 1个月全民K歌会员 (1 month) ¥19.00/month"
+  //   "Starting from 23 March 2026, your subscription automatically renews for ¥19.00/month"
+  // Or receipt format:
+  //   "WPS Office  WPS会员连续月订阅 (Monthly)  ¥9.00  Renews 19 Apr 2026"
+
+  // Pattern 0a: "automatically renews for PRICE/period" — extract price & cycle
+  const autoRenewPattern = /(?:automatically\s+renews?\s+for\s+)([¥￥$€£₹₩])\s*(\d{1,6}(?:[.,]\d{2})?)\/(\w+)/gi
+  let autoMatch
+  while ((autoMatch = autoRenewPattern.exec(bodyText)) !== null) {
+    const symbol = autoMatch[1]
+    const amount = parseFloat(autoMatch[2].replace(/,/g, ''))
+    const currency = currencyMap[symbol] || 'USD'
+    const periodStr = autoMatch[3].toLowerCase()
+    let cycle = null
+    if (periodStr.includes('month')) cycle = 'monthly'
+    else if (periodStr.includes('year')) cycle = 'yearly'
+    else if (periodStr.includes('week')) cycle = 'weekly'
+
+    // Look backwards 500 chars for app name (Apple puts it before the price)
+    const beforeText = bodyText.slice(Math.max(0, autoMatch.index - 500), autoMatch.index)
+
+    // Try to find app name — typically a Chinese/English name before plan description
+    // Look for the first substantial text block that isn't boilerplate
+    let appName = null
+
+    // Pattern: "AppName  SubDescription (period)" — find the name chunk
+    const namePatterns = [
+      // Chinese app name at start of a section: "全民K歌-唱歌录歌首选"
+      /([\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9\-·.]{1,40})/g,
+      // English app name
+      /([A-Z][A-Za-z0-9\s.]{2,30}?)(?:\s{2,}|\n)/g,
+    ]
+
+    for (const np of namePatterns) {
+      const allMatches = [...beforeText.matchAll(np)]
+      if (allMatches.length > 0) {
+        // Take the last substantial match (closest to the price)
+        for (let mi = allMatches.length - 1; mi >= 0; mi--) {
+          const candidate = allMatches[mi][1].trim()
+            .replace(/\s*(?:超级|连续|包月|包年|订阅|会员|自动续费)\s*.*$/i, '')
+            .replace(/\s*\d+个月.*$/i, '')
+            .trim()
+          // Skip boilerplate
+          const skipWords = ['dear', 'sincerely', 'apple', 'subscription renewal', 'receipt', 'hello', 'total', 'billed to']
+          if (candidate.length >= 2 && candidate.length <= 60 && !skipWords.some(s => candidate.toLowerCase().includes(s))) {
+            appName = candidate
+            break
+          }
+        }
+        if (appName) break
+      }
+    }
+
+    // Extract renewal start date: "Starting from 23 March 2026"
+    let renewDate = null
+    const startMatch = bodyText.slice(autoMatch.index, autoMatch.index + 200).match(/starting\s+from\s+(\d{1,2}\s+\w{3,9}\s+\d{4})/i)
+      || beforeText.match(/starting\s+from\s+(\d{1,2}\s+\w{3,9}\s+\d{4})/i)
+    if (startMatch) {
+      try { renewDate = new Date(startMatch[1]).toISOString() } catch (e) { /* ignore */ }
+    }
+
+    if (appName && !apps.some(a => a.appName === appName)) {
+      apps.push({ appName, amount, currency, cycle, renewDate })
+    }
+  }
 
   // ── Pattern 1: Price + "Renews" nearby (most reliable indicator of subscription) ──
-  // Find all price occurrences and check if "Renews" follows within 200 chars
   const pricePattern = /([¥￥$€£₹₩])\s*(\d{1,6}(?:[.,]\d{2})?)/g
   let priceMatch
   while ((priceMatch = pricePattern.exec(bodyText)) !== null) {
@@ -1034,7 +1110,7 @@ function extractAppleAppDetails(bodyText) {
     if (!renewMatch) continue
 
     // Look backwards from price to find the app name
-    const beforePrice = bodyText.slice(Math.max(0, priceMatch.index - 200), priceMatch.index)
+    const beforePrice = bodyText.slice(Math.max(0, priceMatch.index - 300), priceMatch.index)
     // Get the last meaningful text chunk before the price
     const nameChunks = beforePrice.split(/\s{3,}|\n|App Store/i).filter(s => s.trim().length > 1)
     if (nameChunks.length === 0) continue
@@ -1045,23 +1121,25 @@ function extractAppleAppDetails(bodyText) {
     rawName = rawName
       .replace(/\s*(?:超级|连续|包月|包年|订阅|会员|自动续费|Premium|Pro|Plus|Monthly|Yearly|Annual)\s*.*$/i, '')
       .replace(/\s*\((?:Monthly|Yearly|Annual|Weekly)\)\s*$/i, '')
+      .replace(/\s*\d+个月.*$/i, '')
       .trim()
 
     if (!rawName || rawName.length < 2 || rawName.length > 80) continue
 
     // Skip if it's a generic word
     const lower = rawName.toLowerCase()
-    if (['total', 'subtotal', 'amount', 'tax', 'price', 'billed to'].includes(lower)) continue
+    if (['total', 'subtotal', 'amount', 'tax', 'price', 'billed to', 'report a problem'].includes(lower)) continue
 
     const symbol = priceMatch[1]
     const amount = parseFloat(priceMatch[2].replace(/,/g, ''))
     const currency = currencyMap[symbol] || 'USD'
 
     // Detect cycle from surrounding text
-    const contextText = bodyText.slice(Math.max(0, priceMatch.index - 50), priceMatch.index + 200)
+    const contextText = bodyText.slice(Math.max(0, priceMatch.index - 100), priceMatch.index + 300)
     let cycle = null
-    if (/monthly|包月|连续包月|每月/i.test(contextText)) cycle = 'monthly'
-    else if (/yearly|annual|包年|每年|年度/i.test(contextText)) cycle = 'yearly'
+    if (/monthly|包月|连续包月|每月|\/month|1\s*month/i.test(contextText)) cycle = 'monthly'
+    else if (/yearly|annual|包年|每年|年度|\/year|1\s*year/i.test(contextText)) cycle = 'yearly'
+    else if (/weekly|每周|\/week/i.test(contextText)) cycle = 'weekly'
 
     // Extract renewal date
     let renewDate = null
@@ -1096,6 +1174,7 @@ function extractAppleAppDetails(bodyText) {
 
       let appName = chunks[chunks.length - 1].trim()
         .replace(/\s*(?:超级|连续|包月|包年|订阅|会员|Premium|Pro|Plus)\s*.*$/i, '')
+        .replace(/\s*\d+个月.*$/i, '')
         .trim()
 
       if (appName.length >= 2 && appName.length <= 80 && !apps.some(a => a.appName === appName)) {
@@ -1235,11 +1314,14 @@ function extractStripeLineItem(bodyText) {
 // ═══════════════════════════════════════════════════════
 
 /**
- * Analyze a group of emails from the same sender domain
+ * Analyze a group of emails from the same sender domain.
+ * Enhanced V6: Better handling of yearly subscriptions and mixed intervals.
  * Returns { isRecurring, confidence, cycle, intervalDays }
  */
 function analyzeFrequency(emailDates) {
   if (emailDates.length < 2) {
+    // Single email — can't determine frequency from dates alone.
+    // Phase 4 will try to detect cycle from email body keywords.
     return { isRecurring: false, confidence: 'none', cycle: null, intervalDays: null }
   }
 
@@ -1257,24 +1339,50 @@ function analyzeFrequency(emailDates) {
   // Average interval
   const avgInterval = intervals.reduce((sum, d) => sum + d, 0) / intervals.length
 
-  // Check for monthly pattern (25-35 day intervals)
+  // Median interval (more robust against outliers)
+  const sortedIntervals = [...intervals].sort((a, b) => a - b)
+  const medianInterval = sortedIntervals[Math.floor(sortedIntervals.length / 2)]
+
+  // ── Check for monthly pattern (20-40 day intervals) ──
   const monthlyIntervals = intervals.filter(d => d >= 20 && d <= 40)
   if (monthlyIntervals.length >= intervals.length * 0.6) {
     const confidence = emailDates.length >= 3 ? 'high' : 'medium'
-    return { isRecurring: true, confidence, cycle: 'monthly', intervalDays: avgInterval }
+    return { isRecurring: true, confidence, cycle: 'monthly', intervalDays: medianInterval }
   }
 
-  // Check for quarterly pattern (80-100 day intervals)
+  // ── Check for quarterly pattern (75-105 day intervals) ──
   const quarterlyIntervals = intervals.filter(d => d >= 75 && d <= 105)
   if (quarterlyIntervals.length >= intervals.length * 0.5) {
     const confidence = emailDates.length >= 3 ? 'high' : 'medium'
-    return { isRecurring: true, confidence, cycle: 'quarterly', intervalDays: avgInterval }
+    return { isRecurring: true, confidence, cycle: 'quarterly', intervalDays: medianInterval }
   }
 
-  // Check for yearly pattern (340-390 day intervals)
-  const yearlyIntervals = intervals.filter(d => d >= 340 && d <= 400)
+  // ── Check for yearly pattern (330-400 day intervals) ──
+  const yearlyIntervals = intervals.filter(d => d >= 330 && d <= 400)
   if (yearlyIntervals.length >= 1) {
-    return { isRecurring: true, confidence: 'medium', cycle: 'yearly', intervalDays: avgInterval }
+    // With 3 years of data, 2+ yearly intervals = high confidence
+    const confidence = yearlyIntervals.length >= 2 ? 'high' : 'medium'
+    return { isRecurring: true, confidence, cycle: 'yearly', intervalDays: medianInterval }
+  }
+
+  // ── Check for semi-annual pattern (170-200 day intervals) ──
+  const semiAnnualIntervals = intervals.filter(d => d >= 170 && d <= 200)
+  if (semiAnnualIntervals.length >= 1) {
+    return { isRecurring: true, confidence: 'medium', cycle: 'semi-annual', intervalDays: medianInterval }
+  }
+
+  // ── Fallback: use median interval to classify ──
+  // This handles cases where intervals are somewhat noisy but cluster around a cycle
+  if (emailDates.length >= 3) {
+    if (medianInterval >= 25 && medianInterval <= 35) {
+      return { isRecurring: true, confidence: 'medium', cycle: 'monthly', intervalDays: medianInterval }
+    }
+    if (medianInterval >= 85 && medianInterval <= 100) {
+      return { isRecurring: true, confidence: 'medium', cycle: 'quarterly', intervalDays: medianInterval }
+    }
+    if (medianInterval >= 340 && medianInterval <= 395) {
+      return { isRecurring: true, confidence: 'medium', cycle: 'yearly', intervalDays: medianInterval }
+    }
   }
 
   // Not a clear pattern — could be irregular billing notifications
@@ -1296,7 +1404,7 @@ function analyzeFrequency(emailDates) {
 export async function scanGmailForSubscriptions(token, onProgress, options = {}) {
   if (!token) throw new Error('No Google token available. Please sign out and sign in again.')
 
-  const months = options.months || 6
+  const months = options.months || 36
 
   // ════════════════════════════════════════════════
   // PHASE 1: Search for billing/receipt emails
@@ -1309,13 +1417,17 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
     'OR "subscription renewed" OR "renewal" OR "auto-renew"',
     'OR "amount charged" OR "transaction" OR "monthly charge"',
     'OR "your receipt" OR "recurring payment" OR "billing period"',
-    'OR 收据 OR 发票 OR 账单))',
+    'OR membership OR "tax invoice" OR "subscription confirmation"',
+    'OR "your subscription" OR "plan renewal" OR "welcome to your"',
+    'OR "paid subscription" OR "order receipt" OR "your plan"',
+    'OR "subscription renewal" OR "renew" OR "auto-renewal"',
+    'OR 收据 OR 发票 OR 账单 OR 订阅 OR 会员))',
     `newer_than:${months}m`,
     '-category:promotions',
     '-category:social',
   ].join(' ')
 
-  const messages = await searchAllMessages(token, query, 500)
+  const messages = await searchAllMessages(token, query, 1000)
 
   if (messages.length === 0) {
     return { confirmed: [], needsReview: [] }
@@ -1418,8 +1530,7 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       passedDomains.push({ domain, emails, frequency: freq, isKnown })
     } else if (isKnown && emails.length >= 1) {
       // Known services with even 1 billing email should pass —
-      // yearly subscriptions may only have 1 email in a 6-month window.
-      // hasBillingEvidence checks subject; we also accept any email from known domains.
+      // yearly subscriptions may only have 1 email in a 3-year window.
       const hasBilling = emails.some(e => hasBillingEvidence(e.subject))
       if (hasBilling || isKnown) {
         passedDomains.push({
@@ -1427,6 +1538,19 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
           emails,
           frequency: { isRecurring: false, confidence: 'low', cycle: null, intervalDays: null },
           isKnown,
+        })
+      }
+    } else if (!isKnown && emails.length >= 1) {
+      // UNKNOWN brands: if emails have strong billing evidence, still pass them to needsReview.
+      // This ensures services not in our known list (e.g. BrandCrowd, Medium) can still be detected.
+      const hasBilling = emails.some(e => hasBillingEvidence(e.subject))
+      if (hasBilling) {
+        passedDomains.push({
+          domain,
+          emails,
+          frequency: freq.isRecurring ? freq : { isRecurring: false, confidence: 'low', cycle: freq.cycle, intervalDays: freq.intervalDays },
+          isKnown: false,
+          _unknownWithBilling: true, // flag for Phase 4 to put in needsReview
         })
       }
     }
@@ -1452,7 +1576,7 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
   const needsReview = []
 
   for (let i = 0; i < passedDomains.length; i++) {
-    const { domain, emails, frequency, isKnown } = passedDomains[i]
+    const { domain, emails, frequency, isKnown, _unknownWithBilling } = passedDomains[i]
 
     // Get the most recent email's full content for price extraction
     const newestEmail = emails.sort((a, b) => b.date - a.date)[0]
@@ -1524,12 +1648,14 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
         }
       }
 
-      // Detect billing cycle (4-layer)
+      // Detect billing cycle — prioritize: frequency analysis > email body keywords > date range
       const combinedText = `${newestEmail.subject} ${bodyText}`
-      cycle = frequency.cycle || detectBillingCycle(combinedText)
+      const bodyDetectedCycle = detectBillingCycle(combinedText)
+      // Prefer frequency analysis cycle (based on actual email intervals) over body keywords
+      cycle = frequency.cycle || bodyDetectedCycle
       // cycle may still be null — that's OK, user will choose
 
-      // Extract next billing date from email content
+      // Extract next billing date from email content first
       nextDate = extractNextBillingDate(combinedText)
     }
 
@@ -1596,27 +1722,54 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       nextDate = estimateNextBillingDate(lastEmailDate, cycle)
     }
 
+    // ── Detect "upcoming/pending" subscriptions ──
+    // Emails that say "subscription starts on [date]" or "paid subscription start date"
+    // but have no actual charge yet
+    let isPending = false
+    if (bodyText) {
+      const pendingPatterns = [
+        /paid\s+subscription\s+start\s*(?:date)?[:\s]+/i,
+        /subscription\s+(?:starts?|begins?)\s+(?:on\s+)?/i,
+        /your\s+(?:new\s+)?plan\s+(?:starts?|begins?)\s+/i,
+      ]
+      if (pendingPatterns.some(p => p.test(bodyText)) && !priceResult) {
+        isPending = true
+      }
+    }
+
+    // ── Single-email flag for user confirmation ──
+    const isSingleEmail = emails.length === 1
+    let noteText = 'Found via inbox scan'
+    if (isSingleEmail && !frequency.isRecurring) {
+      noteText = 'Found via inbox scan (single email — please confirm if still active)'
+    }
+    if (isPending) {
+      noteText = 'Upcoming subscription detected (no charge yet — please confirm and enter amount)'
+    }
+
     const subscription = {
       name: serviceName,
       category,
       amount: priceResult?.amount || null,
       currency: priceResult?.currency || 'USD',
       billing_cycle: cycle, // null = unknown, user will choose
-      status: 'active',
+      status: isPending ? 'pending' : 'active',
       next_billing_date: nextDate,
       last_email_date: lastEmailDate,
       logo_url: getLogoUrl(logoDomain),
-      notes: 'Found via inbox scan',
+      notes: noteText,
       _emailCount: emails.length,
       _confidence: frequency.confidence,
       _domain: domain.startsWith('stripe:') ? domain.replace('stripe:', '') : domain,
+      _singleEmail: isSingleEmail && !frequency.isRecurring,
+      _isPending: isPending,
     }
 
-    if (isKnown && frequency.confidence !== 'low') {
+    if (isKnown && frequency.confidence !== 'low' && !_unknownWithBilling) {
       confirmed.push(subscription)
-    } else if (isKnown && frequency.confidence === 'low') {
-      needsReview.push(subscription)
     } else {
+      // Low confidence, unknown brands with billing evidence, single-email, or pending
+      // all go to needsReview for user confirmation
       needsReview.push(subscription)
     }
 

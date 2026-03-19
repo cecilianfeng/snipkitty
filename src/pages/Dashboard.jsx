@@ -99,12 +99,16 @@ const Dashboard = () => {
             console.warn('Failed to add:', sub.name, err)
           }
         } else {
-          // Existing subscription — update dates, amount, and cycle if we have better data
+          // Existing subscription — update dates, amount, cycle, and category if we have better data
           try {
             const updates = {}
             if (sub.last_email_date) updates.last_email_date = sub.last_email_date
-            if (sub.next_billing_date && !existing.next_billing_date) updates.next_billing_date = sub.next_billing_date
+            if (sub.next_billing_date) updates.next_billing_date = sub.next_billing_date
             if (sub.billing_cycle && !existing.billing_cycle) updates.billing_cycle = sub.billing_cycle
+            // Update category if current is 'other' and scan found a real category
+            if (sub.category && sub.category !== 'other' && existing.category === 'other') {
+              updates.category = sub.category
+            }
             if (Object.keys(updates).length > 0) {
               await updateSubscription(existing.id, updates)
               updatedCount++
@@ -121,7 +125,11 @@ const Dashboard = () => {
           try {
             const updates = {}
             if (sub.last_email_date) updates.last_email_date = sub.last_email_date
-            if (sub.next_billing_date && !existing.next_billing_date) updates.next_billing_date = sub.next_billing_date
+            if (sub.next_billing_date) updates.next_billing_date = sub.next_billing_date
+            if (sub.billing_cycle && !existing.billing_cycle) updates.billing_cycle = sub.billing_cycle
+            if (sub.category && sub.category !== 'other' && existing.category === 'other') {
+              updates.category = sub.category
+            }
             if (Object.keys(updates).length > 0) {
               await updateSubscription(existing.id, updates)
               updatedCount++
@@ -206,7 +214,7 @@ const Dashboard = () => {
   }
 
   // Calculate stats — responsive to costView toggle
-  const activeCount = subscriptions.filter(s => s.status === 'active').length
+  const activeCount = subscriptions.filter(s => s.status === 'active' || s.status === 'pending').length
   const monthlyTotal = calcMonthlyTotal(subscriptions)
   const yearlyTotal = calcYearlyTotal(subscriptions)
   const displayTotal = costView === 'monthly' ? monthlyTotal : yearlyTotal
@@ -241,6 +249,7 @@ const Dashboard = () => {
   const getFilterCounts = () => ({
     all: subscriptions.length,
     active: subscriptions.filter(s => s.status === 'active').length,
+    pending: subscriptions.filter(s => s.status === 'pending').length,
     paused: subscriptions.filter(s => s.status === 'paused').length,
     cancelled: subscriptions.filter(s => s.status === 'cancelled').length,
   })
@@ -249,12 +258,19 @@ const Dashboard = () => {
   const getStatusBadge = (status) => {
     const styles = {
       active: 'bg-green-100 text-green-700',
+      pending: 'bg-yellow-100 text-yellow-700',
       paused: 'bg-orange-100 text-orange-700',
       cancelled: 'bg-gray-100 text-gray-600',
     }
+    const labels = {
+      active: 'Active',
+      pending: 'Upcoming',
+      paused: 'Paused',
+      cancelled: 'Cancelled',
+    }
     return (
-      <span className={`px-3 py-1 ${styles[status] || 'bg-gray-100 text-gray-600'} text-sm font-medium rounded-full capitalize`}>
-        {status}
+      <span className={`px-3 py-1 ${styles[status] || 'bg-gray-100 text-gray-600'} text-sm font-medium rounded-full`}>
+        {labels[status] || status}
       </span>
     )
   }
@@ -361,6 +377,12 @@ const Dashboard = () => {
                               {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
                               {item.last_email_date && ` · Last: ${new Date(item.last_email_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
                             </p>
+                            {item._singleEmail && (
+                              <p className="text-xs text-amber-600 mt-1">Only 1 email found — please confirm if this is still an active subscription</p>
+                            )}
+                            {item._isPending && (
+                              <p className="text-xs text-yellow-600 mt-1">Upcoming subscription (no charge detected yet) — please enter the amount</p>
+                            )}
                             <div className="flex items-center gap-2 mt-2">
                               <span className="text-xs text-gray-500">Amount:</span>
                               <select
@@ -566,6 +588,12 @@ const Dashboard = () => {
                         <p className="text-xs text-gray-400 mt-0.5">
                           {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
                         </p>
+                        {item._singleEmail && (
+                          <p className="text-xs text-amber-600 mt-1">Only 1 email found — please confirm if this is still an active subscription</p>
+                        )}
+                        {item._isPending && (
+                          <p className="text-xs text-yellow-600 mt-1">Upcoming subscription (no charge detected yet) — please enter the amount</p>
+                        )}
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs text-gray-500">Amount:</span>
                           <select
@@ -737,6 +765,7 @@ const Dashboard = () => {
             {[
               { key: 'all', label: 'All', count: counts.all },
               { key: 'active', label: 'Active', count: counts.active },
+              ...(counts.pending > 0 ? [{ key: 'pending', label: 'Upcoming', count: counts.pending }] : []),
               { key: 'paused', label: 'Paused', count: counts.paused },
               { key: 'cancelled', label: 'Cancelled', count: counts.cancelled },
             ].map(filter => (
