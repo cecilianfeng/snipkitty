@@ -175,40 +175,45 @@ export async function analyzeWithAI(candidates, onProgress) {
     // Payment history from AI
     const paymentHistory = aiResult.paymentHistory || []
 
-    // Use AI serviceName for logo if it identifies a well-known service
-    // This fixes cases like Adobe emails coming from 163.com domain
+    // Use AI serviceName to get correct logo
+    // This fixes cases like Adobe emails from 163.com, GCBD → iCloud, etc.
     let logoUrl = sub.logo_url
-    if (aiName && aiName !== sub.name) {
-      // Try to get a better logo based on AI-identified service name
-      const serviceNameLower = aiName.toLowerCase()
-      const knownLogoDomains = {
-        'icloud': 'apple.com',
-        'icloud+': 'apple.com',
-        'adobe': 'adobe.com',
-        'adobe creative cloud': 'adobe.com',
-        'youtube premium': 'youtube.com',
-        'youtube': 'youtube.com',
-        'dropbox': 'dropbox.com',
-        'grammarly': 'grammarly.com',
-        'jira': 'atlassian.com',
-        'framer': 'framer.com',
-        'mobbin': 'mobbin.com',
-        'pitch': 'pitch.com',
-        'webflow': 'webflow.com',
-        'nordvpn': 'nordvpn.com',
-        'screen studio': 'screen.studio',
-      }
-      for (const [name, domain] of Object.entries(knownLogoDomains)) {
-        if (serviceNameLower.includes(name)) {
-          logoUrl = `https://logo.clearbit.com/${domain}`
-          break
-        }
+    const serviceNameLower = (aiName || '').toLowerCase()
+    const knownLogoDomains = {
+      'icloud': 'apple.com', 'icloud+': 'apple.com',
+      'adobe': 'adobe.com', 'creative cloud': 'adobe.com',
+      'youtube': 'youtube.com', 'youtube premium': 'youtube.com',
+      'dropbox': 'dropbox.com', 'grammarly': 'grammarly.com',
+      'jira': 'atlassian.com', 'confluence': 'atlassian.com',
+      'framer': 'framer.com', 'mobbin': 'mobbin.com',
+      'pitch': 'pitch.com', 'webflow': 'webflow.com',
+      'nordvpn': 'nordvpn.com', 'screen studio': 'screen.studio',
+      'figma': 'figma.com', 'notion': 'notion.so',
+      'slack': 'slack.com', 'spotify': 'spotify.com',
+      'netflix': 'netflix.com', 'disney': 'disney.com',
+      'chatgpt': 'openai.com', 'openai': 'openai.com',
+      'claude': 'anthropic.com', 'cursor': 'cursor.com',
+      'canva': 'canva.com', 'github': 'github.com',
+      'vercel': 'vercel.com', 'cloudflare': 'cloudflare.com',
+      'google one': 'google.com', 'google workspace': 'google.com',
+      'medium': 'medium.com', 'substack': 'substack.com',
+      'wps': 'wps.com', 'wps office': 'wps.com',
+      'microsoft 365': 'microsoft.com', 'office 365': 'microsoft.com',
+      '1password': '1password.com', 'bitwarden': 'bitwarden.com',
+      'linear': 'linear.app', 'supabase': 'supabase.com',
+      'netlify': 'netlify.com', 'heroku': 'heroku.com',
+      'aws': 'aws.amazon.com', 'digitalocean': 'digitalocean.com',
+    }
+    for (const [name, domain] of Object.entries(knownLogoDomains)) {
+      if (serviceNameLower.includes(name)) {
+        logoUrl = `https://logo.clearbit.com/${domain}`
+        break
       }
     }
 
     const subscription = {
       name: aiName,
-      category: aiResult.serviceType || sub.category || 'other',
+      category: aiResult.category || sub.category || 'other',
       amount: aiAmount,
       currency: aiCurrency,
       billing_cycle: aiCycle,

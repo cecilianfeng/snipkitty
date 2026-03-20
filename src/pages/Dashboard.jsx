@@ -46,6 +46,7 @@ const Dashboard = () => {
   const [scanResult, setScanResult] = useState(null) // { confirmed, needsReview, addedCount } or { error }
   const [scanMonths, setScanMonths] = useState(36)
   const [reviewItems, setReviewItems] = useState([]) // items needing user confirmation
+  const [showPastItems, setShowPastItems] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -175,10 +176,13 @@ const Dashboard = () => {
       for (const [key, value] of Object.entries(item)) {
         if (!key.startsWith('_')) dbSub[key] = value
       }
+      // Ensure amount is a number, not a string
+      const amount = parseFloat(dbSub.amount) || 0
       await createSubscription({
         ...dbSub,
-        amount: dbSub.amount || 0,
+        amount,
         billing_cycle: dbSub.billing_cycle || 'monthly',
+        status: dbSub.status === 'cancelled' || dbSub.status === 'payment_failed' || dbSub.status === 'expired' || dbSub.status === 'possibly_cancelled' ? 'active' : (dbSub.status || 'active'),
         user_id: user.id,
       })
       setReviewItems(prev => prev.filter(r => r !== item))
@@ -198,9 +202,10 @@ const Dashboard = () => {
       for (const [key, value] of Object.entries(item)) {
         if (!key.startsWith('_')) dbSub[key] = value
       }
+      const amount = parseFloat(dbSub.amount) || 0
       await createSubscription({
         ...dbSub,
-        amount: dbSub.amount || 0,
+        amount,
         billing_cycle: dbSub.billing_cycle || 'monthly',
         status: 'cancelled',
         user_id: user.id,
@@ -212,26 +217,20 @@ const Dashboard = () => {
     }
   }
 
-  // Helper: render a review card (used in both empty state and main dashboard)
-  const renderReviewCard = (item, idx) => {
-    const isCancelled = item._aiStatus === 'cancelled' || item._aiStatus === 'payment_failed' || item._aiStatus === 'expired' || item._aiStatus === 'possibly_cancelled'
-    const statusLabel = {
-      cancelled: 'Cancelled',
-      payment_failed: 'Payment Failed',
-      expired: 'Expired',
-      possibly_cancelled: 'Possibly Cancelled',
-    }[item._aiStatus] || null
-    const statusColor = {
-      cancelled: 'bg-red-100 text-red-700',
-      payment_failed: 'bg-yellow-100 text-yellow-700',
-      expired: 'bg-gray-100 text-gray-600',
-      possibly_cancelled: 'bg-amber-100 text-amber-700',
-    }[item._aiStatus] || ''
+  // Split review items into active vs past (cancelled/expired/payment_failed)
+  const isItemPast = (item) => ['cancelled', 'payment_failed', 'expired', 'possibly_cancelled'].includes(item._aiStatus)
+  const activeReviewItems = reviewItems.filter(i => !isItemPast(i))
+  const pastReviewItems = reviewItems.filter(i => isItemPast(i))
 
+  // Helper: find the real index in reviewItems for editing
+  const getRealIndex = (item) => reviewItems.indexOf(item)
+
+  // Render an active subscription review card — simple: Add or Skip
+  const renderActiveReviewCard = (item) => {
+    const realIdx = getRealIndex(item)
     const paymentHistory = item._paymentHistory || []
-
     return (
-      <div key={idx} className="bg-white rounded-lg p-4">
+      <div key={realIdx} className="bg-white rounded-lg p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 flex-1 min-w-0">
             {item.logo_url ? (
@@ -242,19 +241,12 @@ const Dashboard = () => {
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={item.name || ''}
-                  onChange={(e) => handleEditReview(idx, 'name', e.target.value)}
-                  className="font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-orange-400 focus:outline-none flex-1 text-sm"
-                />
-                {statusLabel && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor}`}>
-                    {statusLabel}
-                  </span>
-                )}
-              </div>
+              <input
+                type="text"
+                value={item.name || ''}
+                onChange={(e) => handleEditReview(realIdx, 'name', e.target.value)}
+                className="font-medium text-gray-900 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-orange-400 focus:outline-none w-full text-sm"
+              />
               <p className="text-xs text-gray-400 mt-0.5">
                 {item._emailCount} email{item._emailCount !== 1 ? 's' : ''} found · {item._domain}
                 {item.last_email_date && ` · Last: ${new Date(item.last_email_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
@@ -263,24 +255,17 @@ const Dashboard = () => {
               {paymentHistory.length > 0 && (
                 <p className="text-xs text-blue-600 mt-0.5">
                   {paymentHistory.length} payment{paymentHistory.length !== 1 ? 's' : ''} found
-                  {paymentHistory.length > 0 && paymentHistory[0].amount && ` · Latest: ${paymentHistory[0].currency || '$'}${paymentHistory[0].amount}`}
-                  {paymentHistory.length > 1 && ` · Total: ${paymentHistory[0].currency || '$'}${paymentHistory.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)}`}
+                  {paymentHistory[0]?.amount && ` · Latest: ${paymentHistory[0].currency || '$'}${paymentHistory[0].amount}`}
                 </p>
               )}
-              {item._singleEmail && !isCancelled && (
-                <p className="text-xs text-amber-600 mt-1">Only 1 email found — please confirm if this is still an active subscription</p>
-              )}
-              {item._isPending && (
-                <p className="text-xs text-yellow-600 mt-1">Upcoming subscription (no charge detected yet) — please enter the amount</p>
-              )}
-              {isCancelled && (
-                <p className="text-xs text-red-600 mt-1">This subscription appears to be no longer active. Add as cancelled to track history, or skip.</p>
+              {item._singleEmail && (
+                <p className="text-xs text-amber-600 mt-1">Only 1 email found — please verify</p>
               )}
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-gray-500">Amount:</span>
                 <select
                   value={item.currency || 'USD'}
-                  onChange={(e) => handleEditReview(idx, 'currency', e.target.value)}
+                  onChange={(e) => handleEditReview(realIdx, 'currency', e.target.value)}
                   className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-gray-50"
                 >
                   <option value="USD">$</option>
@@ -305,14 +290,14 @@ const Dashboard = () => {
                   step="0.01"
                   min="0"
                   value={item.amount ?? ''}
-                  onChange={(e) => handleEditReview(idx, 'amount', e.target.value)}
+                  onChange={(e) => handleEditReview(realIdx, 'amount', e.target.value)}
                   placeholder="—"
                   className="w-20 text-xs border border-gray-200 rounded px-2 py-0.5 bg-gray-50 text-right"
                 />
                 <span className="text-xs text-gray-400">/</span>
                 <select
                   value={item.billing_cycle || ''}
-                  onChange={(e) => handleEditReview(idx, 'billing_cycle', e.target.value)}
+                  onChange={(e) => handleEditReview(realIdx, 'billing_cycle', e.target.value)}
                   className={`text-xs border rounded px-1 py-0.5 ${item.billing_cycle ? 'border-gray-200 bg-gray-50' : 'border-orange-300 bg-orange-50 text-orange-700'}`}
                 >
                   <option value="">Select cycle</option>
@@ -324,45 +309,103 @@ const Dashboard = () => {
               </div>
             </div>
           </div>
-          <div className="flex flex-col gap-1 flex-shrink-0 mt-1">
-            {!isCancelled ? (
-              <button
-                onClick={() => handleApproveReview(item)}
-                className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200"
-              >
-                Add
-              </button>
-            ) : (
-              <button
-                onClick={() => handleApproveReview(item)}
-                className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200"
-              >
-                Add as Active
-              </button>
-            )}
-            {isCancelled ? (
-              <button
-                onClick={() => handleAddAsCancelled(item)}
-                className="px-3 py-1 bg-orange-100 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-200"
-              >
-                Add as Cancelled
-              </button>
-            ) : (
-              <button
-                onClick={() => handleAddAsCancelled(item)}
-                className="px-3 py-1 bg-orange-100 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-200"
-              >
-                Past Sub
-              </button>
-            )}
+          <div className="flex gap-2 flex-shrink-0 mt-1">
+            <button
+              onClick={() => handleApproveReview(item)}
+              className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200"
+            >
+              Add
+            </button>
             <button
               onClick={() => handleDismissReview(item)}
-              className="px-3 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-200"
+              className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200"
             >
               Skip
             </button>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  // Render a past subscription review card — simple: Track History or Skip
+  const renderPastReviewCard = (item) => {
+    const realIdx = getRealIndex(item)
+    const paymentHistory = item._paymentHistory || []
+    return (
+      <div key={realIdx} className="bg-white rounded-lg p-3 opacity-80">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            {item.logo_url ? (
+              <img src={item.logo_url} alt={item.name} className="w-7 h-7 rounded-full flex-shrink-0" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                {item.name?.charAt(0) || '?'}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-700 truncate">{item.name}</p>
+              <p className="text-xs text-gray-400">
+                {item.amount ? `${item.currency || '$'}${item.amount}/${item.billing_cycle || '?'}` : 'Amount unknown'}
+                {paymentHistory.length > 0 && ` · ${paymentHistory.length} payment${paymentHistory.length !== 1 ? 's' : ''} found`}
+                {item.last_email_date && ` · Last: ${new Date(item.last_email_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={() => handleAddAsCancelled(item)}
+              className="px-3 py-1 bg-orange-100 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-200"
+            >
+              Track History
+            </button>
+            <button
+              onClick={() => handleDismissReview(item)}
+              className="px-3 py-1 bg-gray-100 text-gray-500 rounded-lg text-xs font-medium hover:bg-gray-200"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Render the full review section (active + collapsible past)
+  const renderReviewSection = (maxWidth) => {
+    if (activeReviewItems.length === 0 && pastReviewItems.length === 0) return null
+    return (
+      <div className={`${maxWidth} mx-auto mt-8 text-left`}>
+        {/* Active subscriptions needing review */}
+        {activeReviewItems.length > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-5 mb-4">
+            <h3 className="font-semibold text-orange-800 mb-1">Active subscriptions found — please confirm</h3>
+            <p className="text-xs text-orange-600 mb-3">You can edit name, amount, and billing cycle before adding.</p>
+            <div className="space-y-3">
+              {activeReviewItems.map(item => renderActiveReviewCard(item))}
+            </div>
+          </div>
+        )}
+
+        {/* Past subscriptions — collapsible */}
+        {pastReviewItems.length > 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <button
+              onClick={() => setShowPastItems(!showPastItems)}
+              className="flex items-center justify-between w-full text-left"
+            >
+              <span className="text-sm font-medium text-gray-600">
+                We also found {pastReviewItems.length} past subscription{pastReviewItems.length !== 1 ? 's' : ''}
+              </span>
+              <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showPastItems ? 'rotate-180' : ''}`} />
+            </button>
+            {showPastItems && (
+              <div className="space-y-2 mt-3">
+                {pastReviewItems.map(item => renderPastReviewCard(item))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -532,17 +575,7 @@ const Dashboard = () => {
           </div>
 
           {/* Review Items — also shown in empty state */}
-          {reviewItems.length > 0 && (
-            <div className="max-w-2xl mx-auto mt-8 text-left">
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
-                <h3 className="font-semibold text-orange-800 mb-3">Possible subscriptions — please confirm</h3>
-                <p className="text-xs text-orange-600 mb-3">You can edit name, amount, and billing cycle before adding.</p>
-                <div className="space-y-3">
-                  {reviewItems.map((item, idx) => renderReviewCard(item, idx))}
-                </div>
-              </div>
-            </div>
-          )}
+          {renderReviewSection('max-w-2xl')}
         </main>
       </div>
     )
@@ -652,17 +685,9 @@ const Dashboard = () => {
       )}
 
       {/* Review Items Section */}
-      {reviewItems.length > 0 && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-          <div className="bg-orange-50 border border-orange-200 rounded-xl p-5">
-            <h3 className="font-semibold text-orange-800 mb-3">Possible subscriptions — please confirm</h3>
-            <p className="text-xs text-orange-600 mb-3">You can edit name, amount, and billing cycle before adding.</p>
-            <div className="space-y-3">
-              {reviewItems.map((item, idx) => renderReviewCard(item, idx))}
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+        {renderReviewSection('max-w-7xl')}
+      </div>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
