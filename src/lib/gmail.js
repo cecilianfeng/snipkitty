@@ -1873,55 +1873,143 @@ export async function scanGmailForSubscriptions(token, onProgress, options = {})
       }
     }
 
-    // For Apple App Store: each email may be a different app subscription
+    // For Apple App Store: emails from apple.com may contain many different app subscriptions.
+    // We need to group by app name and send each app as a separate candidate.
     const isApple = domain === 'apple.com' || domain.endsWith('.apple.com')
     if (isApple && emails.length > 1) {
-      const recentEmails = sortedEmails.slice(0, 5)
+      // Fetch more emails for Apple since each could be a different app
+      const recentEmails = sortedEmails.slice(0, 10)
+
+      // Group emails by app name extracted from subject + body
+      const appGroups = new Map() // appName → [{subject, bodyText, from, date, amount, currency, cycle}]
+
       for (const appleEmail of recentEmails) {
         const appleMsg = await getFullMessage(token, appleEmail.id)
         if (!appleMsg) continue
         const appleBody = decodeBody(appleMsg.payload)
         if (!appleBody) continue
 
+        // Try to extract app name from this email
+        let appName = null
+
+        // Method 1: Extract from subject line
+        // Common Apple formats:
+        //   "Your Subscription Renewed - WPS Office"
+        //   "Your receipt from Apple - WPS Office"
+        //   "Subscription Confirmation - Spotify"
+        //   "您的订阅确认 - WPS Office"
+        //   "您的订阅续期确认 - WPS Office"
+        const subjectNameMatch = (appleEmail.subject || '').match(
+          /(?:Subscription\s+Renew(?:ed|al)|Your\s+receipt\s+from\s+Apple|Subscription\s+Confirmation|订阅(?:续期)?确认|收据)\s*[-–—:]\s*(.+?)$/i
+        )
+        if (subjectNameMatch) {
+          appName = subjectNameMatch[1].trim()
+        }
+
+        // Method 2: Use extractAppleAppDetails from body
+        if (!appName) {
+          const appDetails = extractAppleAppDetails(appleBody)
+          if (appDetails.length > 0) {
+            appName = appDetails[0].appName
+          }
+        }
+
+        // Method 3: Check for known Apple services in subject
+        if (!appName) {
+          const subjectLower = (appleEmail.subject || '').toLowerCase()
+          const appleServices = [
+            { keywords: ['apple tv', 'tv+'], name: 'Apple TV+' },
+            { keywords: ['apple music'], name: 'Apple Music' },
+            { keywords: ['icloud', 'storage plan'], name: 'iCloud+' },
+            { keywords: ['apple arcade', 'arcade'], name: 'Apple Arcade' },
+            { keywords: ['fitness+'], name: 'Apple Fitness+' },
+            { keywords: ['apple one'], name: 'Apple One' },
+          ]
+          for (const svc of appleServices) {
+            if (svc.keywords.some(kw => subjectLower.includes(kw))) {
+              appName = svc.name
+              break
+            }
+          }
+        }
+
+        // If we still can't identify the app, use a generic key but still include it
+        if (!appName) appName = '_unknown_apple_app'
+
+        // Clean up app name
+        appName = appName
+          .replace(/\s*\(Monthly\)|\s*\(Yearly\)|\s*\(Annual\)/gi, '')
+          .trim()
+
+        if (!appGroups.has(appName)) {
+          appGroups.set(appName, [])
+        }
+
+        appGroups.get(appName).push({
+          subject: appleEmail.subject || '',
+          bodyText: appleBody,
+          from: appleEmail.from || '',
+          domain: 'apple.com',
+          date: appleEmail.date.toISOString().split('T')[0],
+          dateObj: appleEmail.date,
+        })
+      }
+
+      // Now create one AI candidate per app
+      for (const [appName, appEmails] of appGroups) {
+        // Sort by date descending, take up to 3 for AI context
+        appEmails.sort((a, b) => new Date(b.date) - new Date(a.date))
+        const emailsForAI = appEmails.slice(0, 3)
+        const latestDate = appEmails[0].dateObj || new Date(appEmails[0].date)
+
+        // Try regex extraction from newest email
+        const newestBody = appEmails[0].bodyText
+        const newestSubject = appEmails[0].subject
+        const appPrice = extractAmountAndCurrency(`${newestSubject} ${newestBody}`)
+        const appCycle = detectBillingCycle(`${newestSubject} ${newestBody}`)
+        const appNextDate = extractNextBillingDate(`${newestSubject} ${newestBody}`)
+
+        const displayName = appName === '_unknown_apple_app' ? 'App Store Subscription' : appName
+
         const regexSub = {
-          name: 'App Store',
-          category: 'entertainment',
-          amount: priceResult?.amount || null,
-          currency: priceResult?.currency || 'USD',
-          billing_cycle: cycle,
+          name: displayName,
+          category: 'other', // AI will assign the correct category
+          amount: appPrice?.amount || null,
+          currency: appPrice?.currency || 'USD',
+          billing_cycle: appCycle,
           status: 'active',
-          next_billing_date: nextDate,
-          last_email_date: appleEmail.date.toISOString(),
+          next_billing_date: appNextDate,
+          last_email_date: latestDate.toISOString(),
           logo_url: getLogoUrl('apple.com'),
-          notes: 'Found via inbox scan (App Store)',
-          _emailCount: emails.length,
+          notes: `Found via inbox scan (Apple - ${displayName})`,
+          _emailCount: appEmails.length,
           _confidence: frequency.confidence,
           _domain: 'apple.com',
-          _singleEmail: false,
+          _singleEmail: appEmails.length === 1,
           _isPending: false,
         }
 
         aiCandidates.push({
-          domain,
+          domain: 'apple.com',
           emails,
           frequency,
           isKnown: true,
-          emailDataList: [{
-            subject: appleEmail.subject || '',
-            bodyText: appleBody,
-            from: appleEmail.from || '',
+          emailDataList: emailsForAI.map(e => ({
+            subject: e.subject,
+            bodyText: e.bodyText,
+            from: e.from,
             domain: 'apple.com',
-            date: appleEmail.date.toISOString().split('T')[0],
-          }],
-          totalEmailCount: emails.length,
-          lastEmailDate: appleEmail.date.toISOString(),
+            date: e.date,
+          })),
+          totalEmailCount: appEmails.length,
+          lastEmailDate: latestDate.toISOString(),
           regexSubscription: regexSub,
         })
       }
 
       if (onProgress) onProgress({
         phase: 4,
-        message: `Reading Apple emails (${i + 1}/${passedDomains.length})`,
+        message: `Reading Apple emails — found ${appGroups.size} apps (${i + 1}/${passedDomains.length})`,
         current: i + 1,
         total: passedDomains.length,
       })

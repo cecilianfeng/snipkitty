@@ -136,8 +136,15 @@ ALSO NOT SUBSCRIPTIONS:
 - Identify the real service name, not the email sender domain
 - If email sender is obscure but email body mentions a well-known service, use that name
 - Examples: gc.apple.com or GCBD → "iCloud+", emails via 163.com about Adobe → "Adobe Creative Cloud"
-- For App Store emails: extract the specific app being billed, never just "App Store"
 - For Stripe/Paddle receipts: identify the actual product/service name from the email body
+
+## APPLE APP STORE EMAILS
+When domain is apple.com, these emails are subscription renewals for THIRD-PARTY apps sold through Apple's App Store. The app itself is the subscription — not Apple.
+- Extract the SPECIFIC app name (e.g. "WPS Office", "Spotify", "Bear", not "App Store")
+- The app name is usually in the subject line after "—" or "-", or in the email body
+- These ARE paid recurring digital subscriptions — the app is billed through Apple
+- Use the company website info (if available) to determine the correct category for the app
+- The amount shown is what Apple charges (may include Apple's cut)
 
 ## CATEGORY ASSIGNMENT
 Assign the most specific category from this exact list:
