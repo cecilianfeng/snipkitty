@@ -1,5 +1,5 @@
 /**
- * Gmail Inbox Scanner for SnipKitty (V6)
+ * Gmail Inbox Scanner for Snipcat (V6)
  *
  * Strategy: Frequency Analysis + Multi-currency + Stripe intermediary + PDF parsing
  * Phase 1: Search Gmail for billing/receipt/membership emails (metadata only, 3yr range)

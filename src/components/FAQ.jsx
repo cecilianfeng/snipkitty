@@ -4,14 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion'
 const faqs = [
   {
     q: 'Is my data safe?',
-    a: 'Yes! We use read-only access to Gmail, bank-level encryption, and never store your passwords. You can revoke access anytime from your Google account settings.',
+    a: 'Yes! We use read-only email access, bank-level encryption, and never store your passwords. You can revoke access anytime from your account settings.',
   },
   {
     q: 'Which email providers do you support?',
-    a: 'Currently Gmail and Google Workspace. Outlook and Yahoo support is coming soon!',
+    a: 'We support Gmail, Outlook, and Google Workspace — with more providers coming soon!',
   },
   {
-    q: 'Can Snip Kitty automatically cancel subscriptions?',
+    q: 'Can Snipcat automatically cancel subscriptions?',
     a: "Not yet! We remind you before renewal so YOU can decide. Auto-cancellation is on our roadmap.",
   },
   {

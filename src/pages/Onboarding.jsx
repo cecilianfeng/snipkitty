@@ -13,7 +13,7 @@ const CatLogo = ({ size = 36 }) => (
     height={size}
     viewBox="0 0 58 42"
     fill="none"
-    aria-label="SnipKitty logo"
+    aria-label="Snipcat logo"
   >
     {/* Scissors */}
     <g transform="translate(8,26) scale(0.28)">
@@ -37,7 +37,7 @@ const CatLogo = ({ size = 36 }) => (
 const steps = [
   {
     id: 'welcome',
-    title: 'Welcome to SnipKitty!',
+    title: 'Welcome to Snipcat!',
     subtitle: "Let's get your subscriptions organized in under 2 minutes.",
     icon: Sparkles,
   },
@@ -50,7 +50,7 @@ const steps = [
   {
     id: 'scanning',
     title: 'Scanning Your Subscriptions',
-    subtitle: 'SnipKitty is sniffing through your emails for subscriptions...',
+    subtitle: 'Snipcat is sniffing through your emails for subscriptions...',
     icon: ScanSearch,
   },
   {

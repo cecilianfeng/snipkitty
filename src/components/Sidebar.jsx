@@ -52,7 +52,7 @@ export default function Sidebar() {
       {/* Logo Section */}
       <div className="border-b border-white/10 p-6 flex items-center gap-3">
         <CatLogo />
-        <h1 className="text-xl font-bold">SnipKitty</h1>
+        <h1 className="text-xl font-bold">Snipcat</h1>
       </div>
 
       {/* Navigation */}

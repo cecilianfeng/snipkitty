@@ -219,7 +219,7 @@ export default function Settings() {
             <div>
               <h4 className="font-semibold text-blue-900 mb-1">How does email scanning work?</h4>
               <p className="text-sm text-blue-800">
-                SnipKitty securely reads your billing emails to detect subscriptions. We only read — never send or delete. Your data is encrypted and never shared.
+                Snipcat securely reads your billing emails to detect subscriptions. We only read — never send or delete. Your data is encrypted and never shared.
               </p>
             </div>
           </div>

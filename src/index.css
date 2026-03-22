@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Snip Kitty custom animations */
+/* Snipcat custom animations */
 @keyframes gradient-shift {
   0%, 100% {
     background-position: 0% 50%;

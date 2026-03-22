@@ -73,7 +73,7 @@ export default function DashboardPreview() {
         <span className="w-3 h-3 rounded-full bg-red-400" />
         <span className="w-3 h-3 rounded-full bg-yellow-400" />
         <span className="w-3 h-3 rounded-full bg-green-400" />
-        <span className="ml-3 text-xs text-gray-400 font-medium">Snip Kitty — Dashboard</span>
+        <span className="ml-3 text-xs text-gray-400 font-medium">Snipcat — Dashboard</span>
       </div>
 
       <div className="p-6 md:p-8">
