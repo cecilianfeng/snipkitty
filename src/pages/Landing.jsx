@@ -385,8 +385,8 @@ export default function Landing() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-7">
-            <Link to="/" className="flex items-center gap-1.5 font-bold text-gray-900">
-              <CatLogo size={30} /> Snipcat
+            <Link to="/" className="flex items-center gap-2 font-bold text-gray-900">
+              <img src="/snipcat-logo.png" alt="Snipcat" className="w-8 h-8 object-contain" /> Snipcat
             </Link>
             <div className="flex items-center gap-6 text-sm font-medium">
               <a href="#how" className="text-gray-600 hover:text-gray-900 transition-colors">How it works</a>
@@ -422,9 +422,8 @@ export default function Landing() {
             <motion.span variants={staggerChild} className="block">
               Snip away your
             </motion.span>
-            <motion.span variants={staggerChild} className="block relative inline-block">
+            <motion.span variants={staggerChild} className="block">
               <span className="forgotten-gradient">forgotten</span>
-              <HandDrawnUnderline />
             </motion.span>
             <motion.span variants={staggerChild} className="block relative inline-block">
               subscriptions
