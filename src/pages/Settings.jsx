@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Check, Mail, Info, AlertTriangle, Loader2 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
@@ -7,7 +7,7 @@ import { getSubscriptions } from '../lib/subscriptions'
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
-  const { user, profile, signOut, refreshProfile } = useAuth()
+  const { user, profile, signOut } = useAuth()
 
   // Delete account
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -15,38 +15,55 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
 
-  // Profile
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      // Delete user's data in order (subscriptions, reminders, notification prefs, profile)
+      await supabase.from('reminders').delete().eq('user_id', user.id)
+      await supabase.from('subscriptions').delete().eq('user_id', user.id)
+      await supabase.from('notification_preferences').delete().eq('user_id', user.id)
+      await supabase.from('profiles').delete().eq('id', user.id)
+
+      // Sign out (Supabase auth user deletion requires admin/service role,
+      // so we sign out and the account becomes orphaned — can be cleaned up server-side)
+      await signOut()
+    } catch (err) {
+      console.error('Delete account failed:', err)
+      setDeleteError('Something went wrong. Please try again.')
+      setDeleting(false)
+    }
+  }
+
+  // Derive user info from Google auth
   const fullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
   const email = user?.email || ''
   const avatarUrl = user?.user_metadata?.avatar_url
-  const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+  const initials = fullName
+    .split(' ')
+    .map(n => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
+
+  // Profile section
   const [displayName, setDisplayName] = useState(fullName)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
 
-  // Analytics
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(profile?.analytics_enabled !== false)
+  // Data & Privacy section
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(profile?.analytics_enabled ?? true)
   const [savingAnalytics, setSavingAnalytics] = useState(false)
 
-  // CSV Export
-  const [exporting, setExporting] = useState(false)
-
-  useEffect(() => {
-    if (profile) {
-      setAnalyticsEnabled(profile.analytics_enabled !== false)
-    }
-  }, [profile])
-
   const handleSaveProfile = async () => {
-    if (!user) return
     setSavingProfile(true)
-    setProfileSaved(false)
     try {
       await supabase
         .from('profiles')
         .update({ full_name: displayName })
         .eq('id', user.id)
-      if (refreshProfile) await refreshProfile()
+
       setProfileSaved(true)
       setTimeout(() => setProfileSaved(false), 2000)
     } catch (err) {
@@ -57,70 +74,55 @@ export default function Settings() {
   }
 
   const handleToggleAnalytics = async () => {
-    const newVal = !analyticsEnabled
-    setAnalyticsEnabled(newVal)
+    const newValue = !analyticsEnabled
+    setAnalyticsEnabled(newValue)
     setSavingAnalytics(true)
+
     try {
       await supabase
         .from('profiles')
-        .update({ analytics_enabled: newVal })
+        .update({ analytics_enabled: newValue })
         .eq('id', user.id)
     } catch (err) {
-      console.error('Save analytics failed:', err)
-      setAnalyticsEnabled(!newVal) // rollback
+      console.error('Save analytics preference failed:', err)
+      setAnalyticsEnabled(!newValue)
     } finally {
       setSavingAnalytics(false)
     }
   }
 
   const handleExportCSV = async () => {
-    if (!user) return
-    setExporting(true)
     try {
-      const subs = await getSubscriptions(user.id)
+      const subscriptions = await getSubscriptions(user.id)
+
       const headers = ['Name', 'Category', 'Amount', 'Currency', 'Billing Cycle', 'Status', 'Next Billing Date', 'Start Date', 'Notes']
-      const rows = subs.map(s => [
-        s.name || '',
-        s.category || '',
-        s.amount || '',
-        s.currency || 'USD',
-        s.billing_cycle || '',
-        s.status || '',
-        s.next_billing_date || '',
-        s.start_date || '',
-        (s.notes || '').replace(/,/g, ';'),
+      const rows = subscriptions.map(sub => [
+        sub.name || '',
+        sub.category || '',
+        sub.amount || '',
+        sub.currency || '',
+        sub.billing_cycle || '',
+        sub.status || '',
+        sub.next_billing_date || '',
+        sub.start_date || '',
+        sub.notes || ''
       ])
-      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+
+      const csv = [headers, ...rows]
+        .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n')
+
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
-      link.href = url
-      link.download = `snipcat-subscriptions-${new Date().toISOString().split('T')[0]}.csv`
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', `subscriptions_${new Date().toISOString().split('T')[0]}.csv`)
+      link.style.visibility = 'hidden'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-      URL.revokeObjectURL(url)
     } catch (err) {
-      console.error('Export failed:', err)
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== 'DELETE') return
-    setDeleting(true)
-    setDeleteError(null)
-    try {
-      await supabase.from('reminders').delete().eq('user_id', user.id)
-      await supabase.from('subscriptions').delete().eq('user_id', user.id)
-      await supabase.from('notification_preferences').delete().eq('user_id', user.id)
-      await supabase.from('profiles').delete().eq('id', user.id)
-      await signOut()
-    } catch (err) {
-      console.error('Delete account failed:', err)
-      setDeleteError('Something went wrong. Please try again.')
-      setDeleting(false)
+      console.error('Export CSV failed:', err)
     }
   }
 
@@ -174,7 +176,7 @@ export default function Settings() {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-[#2A2D3A] rounded-lg bg-white dark:bg-[#252836] text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#F97316] focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-[#2A2D3A] bg-white dark:bg-[#252836] rounded-lg dark:text-white focus:outline-none focus:ring-2 focus:ring-[#F97316] focus:border-transparent"
               />
             </div>
             <div>
@@ -185,23 +187,30 @@ export default function Settings() {
                 type="email"
                 value={email}
                 disabled
-                className="w-full px-4 py-2 border border-gray-300 dark:border-[#2A2D3A] rounded-lg bg-gray-100 dark:bg-[#252836] text-gray-600 dark:text-gray-500 cursor-not-allowed"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-[#2A2D3A] rounded-lg bg-gray-100 dark:bg-[#252836] text-gray-600 dark:text-gray-400 cursor-not-allowed"
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSaveProfile}
-              disabled={savingProfile}
-              className="px-6 py-2 bg-[#F97316] text-white rounded-lg hover:bg-orange-500 font-medium transition-colors disabled:opacity-60"
-            >
-              {savingProfile ? 'Saving...' : 'Save Changes'}
-            </button>
-            {profileSaved && (
-              <span className="text-sm text-[#22C55E] font-medium">✓ Saved</span>
+          <button
+            onClick={handleSaveProfile}
+            disabled={savingProfile}
+            className="px-6 py-2 bg-[#F97316] text-white rounded-lg hover:bg-orange-500 font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {savingProfile ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Saving...
+              </>
+            ) : profileSaved ? (
+              <>
+                <Check size={16} />
+                Saved
+              </>
+            ) : (
+              'Save Changes'
             )}
-          </div>
+          </button>
         </div>
 
         {/* Section 2: Connected Accounts */}
@@ -211,7 +220,7 @@ export default function Settings() {
 
           <div className="space-y-4 mb-6">
             {/* Gmail — connected, no disconnect in v1 */}
-            <div className="p-4 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/[0.04]">
+            <div className="p-4 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/[0.04] dark:border-[#22C55E]/20 dark:bg-[#22C55E]/[0.08]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <Mail className="text-red-500" size={24} />
@@ -233,7 +242,7 @@ export default function Settings() {
                 <div className="flex items-center gap-4">
                   <Mail className="text-gray-400" size={24} />
                   <div>
-                    <h3 className="font-semibold text-[#111827] dark:text-white">Connect another Gmail</h3>
+                    <h3 className="font-semibold text-[#111827] dark:text-gray-300">Connect another Gmail</h3>
                     <p className="text-sm text-[#9CA3AF] dark:text-gray-500">Coming soon</p>
                   </div>
                 </div>
@@ -247,7 +256,7 @@ export default function Settings() {
                 <div className="flex items-center gap-4">
                   <div className="w-6 h-6 rounded bg-blue-500" />
                   <div>
-                    <h3 className="font-semibold text-[#111827] dark:text-white">Outlook / Microsoft 365</h3>
+                    <h3 className="font-semibold text-[#111827] dark:text-gray-300">Outlook / Microsoft 365</h3>
                     <p className="text-sm text-[#9CA3AF] dark:text-gray-500">Coming soon</p>
                   </div>
                 </div>
@@ -261,7 +270,7 @@ export default function Settings() {
                 <div className="flex items-center gap-4">
                   <div className="w-6 h-6 rounded bg-gray-800 dark:bg-gray-600" />
                   <div>
-                    <h3 className="font-semibold text-[#111827] dark:text-white">Apple Mail / iCloud</h3>
+                    <h3 className="font-semibold text-[#111827] dark:text-gray-300">Apple Mail / iCloud</h3>
                     <p className="text-sm text-[#9CA3AF] dark:text-gray-500">Coming soon</p>
                   </div>
                 </div>
@@ -271,11 +280,11 @@ export default function Settings() {
           </div>
 
           {/* Info Box */}
-          <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 rounded-lg p-4 flex gap-3">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/40 rounded-lg p-4 flex gap-3">
             <Info className="text-blue-600 dark:text-blue-400 flex-shrink-0" size={20} />
             <div>
               <h4 className="font-semibold text-blue-900 dark:text-blue-300 mb-1">How does email scanning work?</h4>
-              <p className="text-sm text-blue-800 dark:text-blue-400">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
                 Snipcat securely reads your billing emails to detect subscriptions. We only read — never send or delete. Your data is encrypted and never shared.
               </p>
             </div>
@@ -301,7 +310,7 @@ export default function Settings() {
           </div>
 
           {profile?.plan !== 'pro' && (
-            <button className="w-full py-3.5 bg-gradient-to-r from-[#F97316] to-[#F59E0B] text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-orange-200 dark:hover:shadow-orange-900/30 hover:-translate-y-0.5 transition-all duration-200 text-base">
+            <button className="w-full py-3.5 bg-gradient-to-r from-[#F97316] to-[#FB923C] text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-orange-200 hover:-translate-y-0.5 transition-all duration-200 text-base">
               ✨ Upgrade to Pro
             </button>
           )}
@@ -314,15 +323,15 @@ export default function Settings() {
           {/* Export */}
           <div className="mb-8 pb-8 border-b border-gray-200 dark:border-[#2A2D3A]">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Export Your Data</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">Download all your subscription data as a CSV file.</p>
-            <button
-              onClick={handleExportCSV}
-              disabled={exporting}
-              className="px-4 py-2 bg-[#F97316] text-white rounded-lg hover:bg-orange-500 font-medium transition-colors disabled:opacity-60 flex items-center gap-2"
-            >
-              {exporting && <Loader2 size={16} className="animate-spin" />}
-              {exporting ? 'Exporting...' : 'Export as CSV'}
-            </button>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">Download all your subscription data as CSV.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleExportCSV}
+                className="px-4 py-2 bg-[#F97316] text-white rounded-lg hover:bg-orange-500 font-medium transition-colors"
+              >
+                CSV
+              </button>
+            </div>
           </div>
 
           {/* Analytics */}
@@ -335,8 +344,8 @@ export default function Settings() {
               <button
                 onClick={handleToggleAnalytics}
                 disabled={savingAnalytics}
-                className={`w-11 h-6 rounded-full transition-colors flex items-center p-0.5 ${
-                  analyticsEnabled ? 'bg-[#F97316]' : 'bg-gray-200 dark:bg-[#2A2D3A]'
+                className={`w-11 h-6 rounded-full transition-colors flex items-center p-0.5 disabled:opacity-50 ${
+                  analyticsEnabled ? 'bg-[#F97316]' : 'bg-gray-200 dark:bg-gray-700'
                 }`}
               >
                 <div className={`w-5 h-5 rounded-full bg-white transition-transform ${analyticsEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -346,7 +355,7 @@ export default function Settings() {
 
           {/* Delete Account */}
           <div>
-            <h3 className="text-lg font-semibold text-red-600 mb-2">Delete Account</h3>
+            <h3 className="text-lg font-semibold text-red-600 dark:text-red-400 mb-2">Delete Account</h3>
             <p className="text-[#6B7280] dark:text-gray-400 mb-4">
               Permanently delete your Snipcat account, all subscriptions, reminders, and preferences. This action cannot be undone.
             </p>
@@ -357,6 +366,8 @@ export default function Settings() {
               Delete Account
             </button>
           </div>
+
+      {/* Delete Confirmation Modal */}
         </div>
 
         {/* Section 5: Appearance */}
@@ -371,8 +382,8 @@ export default function Settings() {
                 onClick={() => setTheme(t)}
                 className={`px-4 py-2 rounded-full font-medium transition-all capitalize ${
                   theme === t
-                    ? 'bg-white dark:bg-[#252836] text-gray-900 dark:text-white shadow-sm font-semibold border border-gray-200 dark:border-[#2A2D3A]'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    ? 'bg-gray-900 dark:bg-gray-900 text-white shadow-sm font-semibold'
+                    : 'bg-gray-100 dark:bg-[#252836] text-gray-700 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
                 }`}
               >
                 {t}
@@ -388,8 +399,8 @@ export default function Settings() {
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !deleting && setShowDeleteModal(false)} />
           <div className="relative bg-white dark:bg-[#1C1F2E] rounded-2xl p-8 max-w-md w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-500/10 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle size={20} className="text-red-600" />
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-red-600 dark:text-red-400" />
               </div>
               <h3 className="text-xl font-bold text-[#111827] dark:text-white">Delete your account?</h3>
             </div>
@@ -402,7 +413,7 @@ export default function Settings() {
               <li>• Your profile and connected accounts</li>
             </ul>
             <p className="text-sm font-medium text-[#111827] dark:text-white mb-2">
-              Type <span className="font-mono bg-red-50 dark:bg-red-500/10 text-red-600 px-1.5 py-0.5 rounded">DELETE</span> to confirm:
+              Type <span className="font-mono bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">DELETE</span> to confirm:
             </p>
             <input
               type="text"
@@ -410,16 +421,16 @@ export default function Settings() {
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               placeholder="DELETE"
               disabled={deleting}
-              className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] rounded-xl text-sm bg-white dark:bg-[#252836] text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent mb-4 disabled:bg-gray-50 dark:disabled:bg-[#252836]"
+              className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] bg-white dark:bg-[#252836] rounded-xl text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent mb-4 disabled:bg-gray-50 dark:disabled:bg-gray-800"
             />
             {deleteError && (
-              <p className="text-sm text-red-600 mb-3">{deleteError}</p>
+              <p className="text-sm text-red-600 dark:text-red-400 mb-3">{deleteError}</p>
             )}
             <div className="flex gap-3">
               <button
                 onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(''); setDeleteError(null) }}
                 disabled={deleting}
-                className="flex-1 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] text-[#6B7280] dark:text-gray-400 rounded-xl font-medium hover:bg-gray-50 dark:hover:bg-[#252836] transition-colors disabled:opacity-50"
+                className="flex-1 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] text-[#6B7280] dark:text-gray-400 bg-white dark:bg-[#252836] rounded-xl font-medium hover:bg-gray-50 dark:hover:bg-[#2A2D3A] transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
