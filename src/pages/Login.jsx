@@ -14,7 +14,7 @@ function Login() {
       <div className="w-full max-w-sm">
         <Link to="/" className="block text-center mb-8">
           <span className="text-2xl font-bold text-gray-900">
-            Snip<span className="text-orange-500">Kitty</span>
+            Snip<span className="text-orange-500">cat</span>
           </span>
         </Link>
         <div className="bg-white rounded-lg shadow p-8">

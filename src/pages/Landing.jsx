@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, useScroll, useMotionValueEvent } from 'framer-motion'
+import { useAuth } from '../context/AuthContext'
 import {
   Mail, ScanSearch, BellRing,
   Radar, LayoutDashboard, DollarSign, Shield, Zap,
@@ -307,6 +308,7 @@ function StepPanel({ step }) {
 export default function Landing() {
   const [scrolled, setScrolled] = useState(false)
   const { scrollY } = useScroll()
+  const { user } = useAuth()
   useMotionValueEvent(scrollY, 'change', (v) => setScrolled(v > 10))
 
   return (
@@ -647,7 +649,7 @@ export default function Landing() {
                   ))}
                 </ul>
               </div>
-              <Link to="/login" className="block text-center py-3 mt-8 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white font-semibold hover:from-[#EA580C] hover:to-[#C2410C] transition-all">
+              <Link to={user ? "/settings" : "/login"} className="block text-center py-3 mt-8 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] text-white font-semibold hover:from-[#EA580C] hover:to-[#C2410C] transition-all">
                 Start Saving Now
               </Link>
             </motion.div>
