@@ -54,9 +54,9 @@ const Dashboard = () => {
   // ─── CURRENCY CONVERSION ───
   // Approximate exchange rates to USD (used for unified display)
   const RATES_TO_USD = {
-    USD: 1, CAD: 0.74, CNY: 0.14, EUR: 1.09, GBP: 1.27, AUD: 0.66,
-    JPY: 0.0067, KRW: 0.00075, INR: 0.012, SGD: 0.75, HKD: 0.13,
-    TWD: 0.031, MYR: 0.22, CHF: 1.13, BRL: 0.20, SEK: 0.097,
+    USD: 1, CAD: 0.73, CNY: 0.145, EUR: 1.08, GBP: 1.29, AUD: 0.70,
+    JPY: 0.00628, KRW: 0.000667, INR: 0.01068, SGD: 0.78, HKD: 0.128,
+    TWD: 0.031, MYR: 0.225, CHF: 1.27, BRL: 0.175, SEK: 0.10,
   }
   const CURRENCY_SYMBOLS = {
     USD: '$', CAD: 'CA$', CNY: '¥', EUR: '€', GBP: '£', AUD: 'A$',

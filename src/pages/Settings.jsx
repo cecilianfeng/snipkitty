@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Mail, Info, Plus } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
+import { getSubscriptions } from '../lib/subscriptions'
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
@@ -30,6 +31,7 @@ export default function Settings() {
 
   // Data & Privacy section
   const [analyticsEnabled, setAnalyticsEnabled] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
   const handleAccountConnect = (account) => {
     setConnectedAccounts(prev => ({
@@ -41,6 +43,48 @@ export default function Settings() {
   const handleSaveProfile = () => {
     // In a real app, this would save to Supabase profiles table
     console.log('Saving profile with displayName:', displayName)
+  }
+
+  const handleExportCSV = async () => {
+    setExporting(true)
+    try {
+      const subs = await getSubscriptions(user.id)
+      if (!subs || subs.length === 0) {
+        alert('No subscriptions to export.')
+        setExporting(false)
+        return
+      }
+      const headers = ['Name', 'Category', 'Amount', 'Currency', 'Billing Cycle', 'Status', 'Next Billing Date', 'Start Date', 'Notes']
+      const rows = subs.map(s => [
+        s.name || '',
+        s.category || '',
+        s.amount || 0,
+        s.currency || 'USD',
+        s.billing_cycle || '',
+        s.status || '',
+        s.next_billing_date || '',
+        s.start_date || '',
+        (s.notes || '').replace(/"/g, '""'),
+      ])
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(r => r.map(v => `"${v}"`).join(','))
+      ].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `snipcat-subscriptions-${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export failed:', err)
+      alert('Failed to export data.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -241,11 +285,14 @@ export default function Settings() {
           {/* Export */}
           <div className="mb-8 pb-8 border-b border-[#E5E7EB]">
             <h3 className="text-lg font-semibold text-[#111827] mb-2">Export Your Data</h3>
-            <p className="text-[#6B7280] mb-4">Download all your subscription data as CSV or JSON.</p>
-            <div className="flex gap-3">
-              <button className="px-4 py-2 bg-[#F97316] text-white rounded-full font-semibold hover:bg-[#EA580C] transition-colors">CSV</button>
-              <button className="px-4 py-2 bg-[#F3F4F6] text-[#111827] rounded-full font-semibold hover:bg-[#E5E7EB] transition-colors">JSON</button>
-            </div>
+            <p className="text-[#6B7280] mb-4">Download all your subscription data as CSV.</p>
+            <button
+              onClick={handleExportCSV}
+              disabled={exporting}
+              className="px-5 py-2 bg-[#F97316] text-white rounded-full font-semibold hover:bg-[#EA580C] transition-colors disabled:opacity-50 shadow-[0_4px_16px_rgba(249,115,22,0.3)]"
+            >
+              {exporting ? 'Exporting...' : 'Export as CSV'}
+            </button>
           </div>
 
           {/* Analytics */}

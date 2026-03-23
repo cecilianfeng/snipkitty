@@ -256,9 +256,9 @@ export default function Subscriptions() {
 
   // ─── CURRENCY CONVERSION (same as Dashboard) ───
   const RATES_TO_USD = {
-    USD: 1, CAD: 0.74, CNY: 0.14, EUR: 1.09, GBP: 1.27, AUD: 0.66,
-    JPY: 0.0067, KRW: 0.00075, INR: 0.012, SGD: 0.75, HKD: 0.13,
-    TWD: 0.031, MYR: 0.22, CHF: 1.13, BRL: 0.20, SEK: 0.097,
+    USD: 1, CAD: 0.73, CNY: 0.145, EUR: 1.08, GBP: 1.29, AUD: 0.70,
+    JPY: 0.00628, KRW: 0.000667, INR: 0.01068, SGD: 0.78, HKD: 0.128,
+    TWD: 0.031, MYR: 0.225, CHF: 1.27, BRL: 0.175, SEK: 0.10,
   }
   const CURRENCY_SYMBOLS = {
     USD: '$', CAD: 'CA$', CNY: '¥', EUR: '€', GBP: '£', AUD: 'A$',
@@ -410,7 +410,7 @@ export default function Subscriptions() {
                   const isCancelled = item.status === 'cancelled'
 
                   return (
-                    <div key={item.id} className="border border-[#F3F4F6] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-shadow">
+                    <div key={item.id} className="border border-[#F3F4F6] rounded-2xl overflow-hidden hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-200">
                       <button
                         onClick={() => toggleExpanded(item.id)}
                         className={`w-full px-5 py-4 flex items-center gap-4 hover:bg-[#F9FAFB] transition-colors ${isCancelled ? 'opacity-50' : ''}`}
@@ -455,9 +455,22 @@ export default function Subscriptions() {
                             </div>
                             <div>
                               <p className="text-xs text-[#6B7280] mb-1">Currency</p>
-                              <p className="text-sm font-medium text-[#111827]">{item.currency}</p>
+                              <p className="text-sm font-medium text-[#111827]">{item.currency || 'USD'}</p>
                             </div>
                           </div>
+                          {(item.currency || 'USD') !== dominantCurrency && Number(item.amount) > 0 && (
+                            <div className="mb-4 px-3 py-2.5 bg-[#FFF5F0] border border-[#F97316]/10 rounded-xl">
+                              <p className="text-xs font-medium text-[#111827]">
+                                Original: {CURRENCY_SYMBOLS[item.currency] || item.currency}{Number(item.amount).toFixed(2)} {item.currency} / {item.billing_cycle || 'month'}
+                              </p>
+                              <p className="text-xs text-[#6B7280] mt-0.5">
+                                → {dominantSymbol}{getMonthlyInDominant(item).toFixed(2)} {dominantCurrency}/mo · {dominantSymbol}{getYearlyInDominant(item).toFixed(2)} {dominantCurrency}/yr
+                              </p>
+                              <p className="text-xs text-[#9CA3AF] mt-0.5">
+                                Rate: 1 {item.currency} ≈ {((RATES_TO_USD[item.currency] || 1) / (RATES_TO_USD[dominantCurrency] || 1)).toFixed(4)} {dominantCurrency}
+                              </p>
+                            </div>
+                          )}
                           {item.notes && (
                             <div className="mb-4">
                               <p className="text-xs text-[#6B7280] mb-1">Notes</p>
@@ -505,7 +518,7 @@ export default function Subscriptions() {
     return (
       <div className="space-y-2">
         {sortedAll.map(item => (
-          <div key={item.id} className={`bg-white border border-[#F3F4F6] rounded-2xl px-5 py-4 flex items-center gap-4 shadow-[0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-shadow ${item.status === 'cancelled' ? 'opacity-50' : ''}`}>
+          <div key={item.id} className={`bg-white border border-[#F3F4F6] rounded-2xl px-5 py-4 flex items-center gap-4 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-200 ${item.status === 'cancelled' ? 'opacity-50' : ''}`}>
             {item.logo_url ? (
               <img src={item.logo_url} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
             ) : (
