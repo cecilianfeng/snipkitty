@@ -67,37 +67,37 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">
+        <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB]">
+          <h2 className="text-xl font-bold text-[#111827]">
             {editData ? 'Edit Subscription' : 'Add Subscription'}
           </h2>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={20} className="text-gray-500" />
+            <X size={20} className="text-[#6B7280]" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
+            <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Name</label>
             <input
               type="text"
               required
               placeholder="e.g. Netflix, Spotify, Claude..."
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316] focus:border-transparent"
+              className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] focus:border-transparent"
             />
           </div>
 
           {/* Category + Billing Cycle */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Category</label>
+              <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Category</label>
               <select
                 value={form.category}
                 onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
               >
                 {Object.entries(CATEGORIES).map(([key, { label }]) => (
                   <option key={key} value={key}>{label}</option>
@@ -105,11 +105,11 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Billing Cycle</label>
+              <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Billing Cycle</label>
               <select
                 value={form.billing_cycle}
                 onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
               >
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
@@ -122,7 +122,7 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
           {/* Amount + Currency */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount</label>
+              <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Amount</label>
               <input
                 type="number"
                 step="0.01"
@@ -130,49 +130,49 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
                 placeholder="9.99"
                 value={form.amount}
                 onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Currency</label>
+              <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Currency</label>
               <select
                 value={form.currency}
                 onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
               >
                 <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (\u20ac)</option>
-                <option value="GBP">GBP (\u00a3)</option>
-                <option value="CNY">CNY (\u00a5)</option>
-                <option value="JPY">JPY (\u00a5)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="CNY">CNY (¥)</option>
+                <option value="JPY">JPY (¥)</option>
               </select>
             </div>
           </div>
 
           {/* Next Billing Date */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Next Billing Date</label>
+            <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Next Billing Date</label>
             <input
               type="date"
               value={form.next_billing_date}
               onChange={e => setForm(f => ({ ...f, next_billing_date: e.target.value }))}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+              className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
             />
           </div>
 
           {/* Status */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+            <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Status</label>
             <div className="flex gap-2">
               {['active', 'paused', 'cancelled'].map(s => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setForm(f => ({ ...f, status: s }))}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors capitalize ${
                     form.status === s
                       ? 'bg-[#F97316] text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      : 'bg-[#F9FAFB] text-[#6B7280] hover:bg-[#F3F4F6]'
                   }`}
                 >
                   {s}
@@ -183,13 +183,13 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes (optional)</label>
+            <label className="block text-sm font-medium text-[#6B7280] mb-1.5">Notes (optional)</label>
             <textarea
               rows={2}
               placeholder="Any notes about this subscription..."
               value={form.notes}
               onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#F97316] resize-none"
+              className="w-full px-4 py-2.5 border border-[#E5E7EB] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] resize-none"
             />
           </div>
 
@@ -198,14 +198,14 @@ function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+              className="flex-1 px-4 py-2.5 border-2 border-[#E5E7EB] text-[#6B7280] rounded-full font-medium hover:bg-[#F9FAFB] transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 px-4 py-2.5 bg-[#F97316] text-white rounded-lg font-medium hover:bg-[#EA580C] transition-colors disabled:opacity-50"
+              className="flex-1 px-4 py-2.5 bg-[#F97316] text-white rounded-full font-medium hover:bg-[#EA580C] transition-colors disabled:opacity-50"
             >
               {saving ? 'Saving...' : editData ? 'Save Changes' : 'Add Subscription'}
             </button>
@@ -300,10 +300,10 @@ export default function Subscriptions() {
 
   const getStatusBadgeColor = (status) => {
     switch (status) {
-      case 'active': return 'bg-green-100 text-green-700'
-      case 'paused': return 'bg-orange-100 text-orange-700'
-      case 'cancelled': return 'bg-gray-200 text-gray-600'
-      default: return 'bg-gray-100 text-gray-600'
+      case 'active': return 'bg-[#22C55E]/[0.07] text-[#22C55E]/70'
+      case 'paused': return 'bg-[#F97316]/10 text-[#F97316]'
+      case 'cancelled': return 'bg-[#F3F4F6] text-[#9CA3AF]'
+      default: return 'bg-[#F3F4F6] text-[#9CA3AF]'
     }
   }
 
@@ -334,7 +334,7 @@ export default function Subscriptions() {
 
     if (categoryEntries.length === 0) {
       return (
-        <div className="text-center py-16 text-gray-500">
+        <div className="text-center py-16 text-[#6B7280]">
           No subscriptions yet. Click "Add Manually" to get started.
         </div>
       )
@@ -354,10 +354,10 @@ export default function Subscriptions() {
                   <div className="w-5 h-5 rounded-full border-2 border-current" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{catConfig.label}</h3>
-                  <p className="text-sm text-gray-600">{items.length} subscription{items.length !== 1 ? 's' : ''}</p>
+                  <h3 className="text-lg font-semibold text-[#111827]">{catConfig.label}</h3>
+                  <p className="text-sm text-[#6B7280]">{items.length} subscription{items.length !== 1 ? 's' : ''}</p>
                 </div>
-                <p className="ml-4 text-sm font-semibold text-gray-900">${catTotal.toFixed(2)}/mo</p>
+                <p className="ml-4 text-sm font-semibold text-[#111827]">${catTotal.toFixed(2)}/mo</p>
               </div>
 
               <div className="space-y-2">
@@ -366,77 +366,77 @@ export default function Subscriptions() {
                   const isCancelled = item.status === 'cancelled'
 
                   return (
-                    <div key={item.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div key={item.id} className="border border-[#E5E7EB] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-shadow">
                       <button
                         onClick={() => toggleExpanded(item.id)}
-                        className={`w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors ${isCancelled ? 'opacity-50' : ''}`}
+                        className={`w-full px-5 py-4 flex items-center gap-4 hover:bg-[#F9FAFB] transition-colors ${isCancelled ? 'opacity-50' : ''}`}
                       >
                         {item.logo_url ? (
                           <img src={item.logo_url} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-semibold text-sm flex-shrink-0">
+                          <div className="w-10 h-10 rounded-full bg-[#FFF5F0] text-[#F97316] flex items-center justify-center font-semibold text-sm flex-shrink-0">
                             {item.name?.charAt(0).toUpperCase()}
                           </div>
                         )}
                         <div className="flex-1 text-left min-w-0">
-                          <p className={`font-medium text-gray-900 ${isCancelled ? 'line-through text-gray-500' : ''}`}>
+                          <p className={`font-medium text-[#111827] ${isCancelled ? 'line-through text-[#6B7280]' : ''}`}>
                             {item.name}
                           </p>
-                          <p className="text-sm text-gray-600 capitalize">{item.billing_cycle}</p>
+                          <p className="text-sm text-[#6B7280] capitalize">{item.billing_cycle}</p>
                         </div>
-                        <div className="text-sm text-gray-600 min-w-max">
-                          <p className="text-xs text-gray-500">Renews</p>
+                        <div className="text-sm text-[#6B7280] min-w-max">
+                          <p className="text-xs text-[#9CA3AF]">Renews</p>
                           <p className="font-medium">{formatDate(item.next_billing_date)}</p>
                         </div>
                         <div className="text-right min-w-max">
-                          <p className="text-lg font-semibold text-gray-900">{Number(item.amount) > 0 ? `$${Number(item.amount).toFixed(2)}` : '—'}</p>
-                          <p className="text-xs text-gray-500">{item.billing_cycle}</p>
+                          <p className="text-lg font-semibold text-[#111827]">{Number(item.amount) > 0 ? `$${Number(item.amount).toFixed(2)}` : '—'}</p>
+                          <p className="text-xs text-[#9CA3AF]">{item.billing_cycle}</p>
                         </div>
                         <div className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadgeColor(item.status)}`}>
                           {item.status}
                         </div>
                         <ChevronDown
                           size={20}
-                          className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          className={`text-[#9CA3AF] flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                         />
                       </button>
 
                       {isExpanded && (
-                        <div className="border-t border-gray-200 bg-gray-50 px-5 py-6">
+                        <div className="border-t border-[#E5E7EB] bg-[#F9FAFB] px-5 py-6">
                           <div className="grid grid-cols-2 gap-6 mb-4">
                             <div>
-                              <p className="text-xs text-gray-600 mb-1">Start Date</p>
-                              <p className="text-sm font-medium text-gray-900">{formatDate(item.start_date)}</p>
+                              <p className="text-xs text-[#6B7280] mb-1">Start Date</p>
+                              <p className="text-sm font-medium text-[#111827]">{formatDate(item.start_date)}</p>
                             </div>
                             <div>
-                              <p className="text-xs text-gray-600 mb-1">Currency</p>
-                              <p className="text-sm font-medium text-gray-900">{item.currency}</p>
+                              <p className="text-xs text-[#6B7280] mb-1">Currency</p>
+                              <p className="text-sm font-medium text-[#111827]">{item.currency}</p>
                             </div>
                           </div>
                           {item.notes && (
                             <div className="mb-4">
-                              <p className="text-xs text-gray-600 mb-1">Notes</p>
-                              <p className="text-sm text-gray-900">{item.notes}</p>
+                              <p className="text-xs text-[#6B7280] mb-1">Notes</p>
+                              <p className="text-sm text-[#111827]">{item.notes}</p>
                             </div>
                           )}
                           <div className="flex gap-2">
                             <button
                               onClick={() => openEdit(item)}
-                              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                              className="px-4 py-2 text-sm font-medium text-[#6B7280] border border-[#E5E7EB] rounded-full hover:bg-[#F9FAFB] transition-colors"
                             >
                               Edit
                             </button>
                             {item.status !== 'cancelled' && (
                               <button
                                 onClick={() => handleCancel(item.id)}
-                                className="px-4 py-2 text-sm font-medium text-orange-600 border border-orange-300 rounded-lg hover:bg-orange-50 transition-colors"
+                                className="px-4 py-2 text-sm font-medium text-[#F97316] border border-[#F97316]/30 rounded-full hover:bg-[#FFF5F0] transition-colors"
                               >
                                 Cancel Sub
                               </button>
                             )}
                             <button
                               onClick={() => handleDelete(item.id)}
-                              className="px-4 py-2 text-sm font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors"
+                              className="px-4 py-2 text-sm font-medium text-[#EF4444] border border-[#EF4444]/30 rounded-full hover:bg-red-50 transition-colors"
                             >
                               Delete
                             </button>
@@ -460,20 +460,20 @@ export default function Subscriptions() {
     return (
       <div className="space-y-2">
         {sortedAll.map(item => (
-          <div key={item.id} className={`bg-white border border-gray-200 rounded-lg px-5 py-4 flex items-center gap-4 ${item.status === 'cancelled' ? 'opacity-50' : ''}`}>
+          <div key={item.id} className={`bg-white border border-[#E5E7EB] rounded-2xl px-5 py-4 flex items-center gap-4 shadow-[0_1px_4px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-shadow ${item.status === 'cancelled' ? 'opacity-50' : ''}`}>
             {item.logo_url ? (
               <img src={item.logo_url} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-semibold text-sm flex-shrink-0">
+              <div className="w-10 h-10 rounded-full bg-[#FFF5F0] text-[#F97316] flex items-center justify-center font-semibold text-sm flex-shrink-0">
                 {item.name?.charAt(0).toUpperCase()}
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <p className={`font-medium text-gray-900 ${item.status === 'cancelled' ? 'line-through' : ''}`}>{item.name}</p>
-              <p className="text-sm text-gray-500 capitalize">{CATEGORIES[item.category]?.label || 'Other'}</p>
+              <p className={`font-medium text-[#111827] ${item.status === 'cancelled' ? 'line-through' : ''}`}>{item.name}</p>
+              <p className="text-sm text-[#6B7280] capitalize">{CATEGORIES[item.category]?.label || 'Other'}</p>
             </div>
-            <div className="text-sm text-gray-600">{formatDate(item.next_billing_date)}</div>
-            <div className="font-semibold text-gray-900">{Number(item.amount) > 0 ? `$${Number(item.amount).toFixed(2)}` : '—'}</div>
+            <div className="text-sm text-[#6B7280]">{formatDate(item.next_billing_date)}</div>
+            <div className="font-semibold text-[#111827]">{Number(item.amount) > 0 ? `$${Number(item.amount).toFixed(2)}` : '—'}</div>
             <div className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${getStatusBadgeColor(item.status)}`}>
               {item.status}
             </div>
@@ -493,18 +493,18 @@ export default function Subscriptions() {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <p className="text-sm text-gray-600 mb-1">Monthly Total</p>
-            <p className="text-3xl font-bold text-gray-900">${monthlyTotal.toFixed(2)}</p>
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6">
+            <p className="text-sm text-[#6B7280] mb-1">Monthly Total</p>
+            <p className="text-3xl font-bold text-[#111827]">${monthlyTotal.toFixed(2)}</p>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <p className="text-sm text-gray-600 mb-1">Yearly Estimate</p>
-            <p className="text-3xl font-bold text-gray-900">${yearlyEstimate.toFixed(2)}</p>
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6">
+            <p className="text-sm text-[#6B7280] mb-1">Yearly Estimate</p>
+            <p className="text-3xl font-bold text-[#111827]">${yearlyEstimate.toFixed(2)}</p>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Spending by Category</h3>
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6">
+          <h3 className="text-lg font-semibold text-[#111827] mb-4">Spending by Category</h3>
           {Object.entries(groupByCategory(activeItems)).map(([catKey, items]) => {
             const catConfig = CATEGORIES[catKey] || CATEGORIES.other
             const catTotal = items.reduce((s, i) => s + Number(i.amount), 0)
@@ -512,10 +512,10 @@ export default function Subscriptions() {
             return (
               <div key={catKey} className="mb-4">
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="font-medium text-gray-700">{catConfig.label}</span>
-                  <span className="text-gray-600">${catTotal.toFixed(2)}/mo ({pct.toFixed(0)}%)</span>
+                  <span className="font-medium text-[#6B7280]">{catConfig.label}</span>
+                  <span className="text-[#6B7280]">${catTotal.toFixed(2)}/mo ({pct.toFixed(0)}%)</span>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
                   <div className="h-full bg-[#F97316] rounded-full" style={{ width: `${pct}%` }} />
                 </div>
               </div>
@@ -528,14 +528,14 @@ export default function Subscriptions() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-400">Loading subscriptions...</div>
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-[#6B7280]">Loading subscriptions...</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <SubscriptionModal
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setEditingSub(null) }}
@@ -544,17 +544,17 @@ export default function Subscriptions() {
       />
 
       {/* Sticky Header */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-200">
+      <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#E5E7EB]">
         <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Subscriptions</h1>
-              <p className="text-gray-600 mt-1">Manage and track all your subscriptions</p>
+              <h1 className="text-3xl font-bold text-[#111827]">Subscriptions</h1>
+              <p className="text-[#6B7280] mt-1">Manage and track all your subscriptions</p>
             </div>
             <div className="flex gap-3">
               <button
                 onClick={openAdd}
-                className="px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 flex items-center gap-2 transition-colors"
+                className="px-4 py-2 border-2 border-[#E5E7EB] rounded-full text-[#6B7280] hover:bg-[#F9FAFB] transition-colors flex items-center gap-2 text-sm font-medium"
               >
                 <Plus size={18} />
                 Add Manually
@@ -572,8 +572,8 @@ export default function Subscriptions() {
                   <button
                     key={tab}
                     onClick={() => setActiveView(viewKey)}
-                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                      isActive ? 'bg-orange-100 text-orange-700' : 'text-gray-600 hover:bg-gray-100'
+                    className={`px-4 py-2 rounded-xl font-medium transition-colors ${
+                      isActive ? 'bg-[#111827] text-white' : 'text-[#6B7280] hover:text-[#111827] bg-[#F9FAFB]'
                     }`}
                   >
                     {tab}
@@ -585,7 +585,7 @@ export default function Subscriptions() {
             <select
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors appearance-none cursor-pointer bg-white"
+              className="px-4 py-2 border border-[#E5E7EB] rounded-xl text-[#6B7280] font-medium hover:bg-[#F9FAFB] transition-colors appearance-none cursor-pointer bg-white"
             >
               <option value="price-high">Price: High to Low</option>
               <option value="price-low">Price: Low to High</option>
