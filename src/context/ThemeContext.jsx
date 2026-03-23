@@ -3,7 +3,18 @@ import { createContext, useContext, useState, useEffect } from 'react'
 const ThemeContext = createContext()
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState('light')
+  const [theme, setThemeState] = useState(() => {
+    try {
+      return localStorage.getItem('snipcat-theme') || 'light'
+    } catch {
+      return 'light'
+    }
+  })
+
+  const setTheme = (t) => {
+    setThemeState(t)
+    try { localStorage.setItem('snipcat-theme', t) } catch {}
+  }
 
   useEffect(() => {
     const root = document.documentElement
