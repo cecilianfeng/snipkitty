@@ -5,15 +5,15 @@ import {
   Package,
   Clock,
   TrendingDown,
-  Download,
   Mail,
-  Filter,
   ChevronDown,
+  ChevronUp,
   Plus,
   Inbox,
   Loader2,
   CheckCircle,
   Scissors,
+  Info,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -48,6 +48,60 @@ const Dashboard = () => {
   const [scanMonths, setScanMonths] = useState(36)
   const [reviewItems, setReviewItems] = useState([]) // items needing user confirmation
   const [showPastItems, setShowPastItems] = useState(false)
+  const [showScanOptions, setShowScanOptions] = useState(false) // scan month picker popup
+  const [showCurrencyInfo, setShowCurrencyInfo] = useState(false) // currency conversion info
+
+  // ─── CURRENCY CONVERSION ───
+  // Approximate exchange rates to USD (used for unified display)
+  const RATES_TO_USD = {
+    USD: 1, CAD: 0.74, CNY: 0.14, EUR: 1.09, GBP: 1.27, AUD: 0.66,
+    JPY: 0.0067, KRW: 0.00075, INR: 0.012, SGD: 0.75, HKD: 0.13,
+    TWD: 0.031, MYR: 0.22, CHF: 1.13, BRL: 0.20, SEK: 0.097,
+  }
+  const CURRENCY_SYMBOLS = {
+    USD: '$', CAD: 'CA$', CNY: '¥', EUR: '€', GBP: '£', AUD: 'A$',
+    JPY: '¥', KRW: '₩', INR: '₹', SGD: 'S$', HKD: 'HK$',
+    TWD: 'NT$', MYR: 'RM', CHF: 'CHF ', BRL: 'R$', SEK: 'kr ',
+  }
+
+  // Detect the dominant currency among active subscriptions
+  const getDominantCurrency = () => {
+    const counts = {}
+    subscriptions.filter(s => s.status === 'active' && s.amount > 0).forEach(s => {
+      const c = s.currency || 'USD'
+      counts[c] = (counts[c] || 0) + 1
+    })
+    let max = 0, dominant = 'USD'
+    for (const [c, n] of Object.entries(counts)) {
+      if (n > max) { max = n; dominant = c }
+    }
+    return dominant
+  }
+
+  const dominantCurrency = getDominantCurrency()
+  const dominantSymbol = CURRENCY_SYMBOLS[dominantCurrency] || dominantCurrency + ' '
+
+  // Convert amount from one currency to dominant currency
+  const convertToDominant = (amount, fromCurrency) => {
+    if (!amount) return 0
+    const from = fromCurrency || 'USD'
+    if (from === dominantCurrency) return amount
+    const usdAmount = amount * (RATES_TO_USD[from] || 1)
+    const rate = RATES_TO_USD[dominantCurrency] || 1
+    return usdAmount / rate
+  }
+
+  // Get monthly equivalent in dominant currency
+  const getMonthlyInDominant = (sub) => {
+    const monthly = getMonthlyEquivalent(sub)
+    return convertToDominant(monthly, sub.currency || 'USD')
+  }
+
+  // Get yearly equivalent in dominant currency
+  const getYearlyInDominant = (sub) => {
+    const yearly = getYearlyEquivalent(sub)
+    return convertToDominant(yearly, sub.currency || 'USD')
+  }
 
   useEffect(() => {
     if (!user) return
@@ -454,17 +508,23 @@ const Dashboard = () => {
     }
   }
 
-  // Calculate stats — responsive to costView toggle
+  // Calculate stats — responsive to costView toggle, in dominant currency
   const activeCount = subscriptions.filter(s => s.status === 'active' || s.status === 'pending').length
-  const monthlyTotal = calcMonthlyTotal(subscriptions)
-  const yearlyTotal = calcYearlyTotal(subscriptions)
+  const monthlyTotal = subscriptions
+    .filter(s => s.status === 'active')
+    .reduce((sum, s) => sum + getMonthlyInDominant(s), 0)
+  const yearlyTotal = subscriptions
+    .filter(s => s.status === 'active')
+    .reduce((sum, s) => sum + getYearlyInDominant(s), 0)
   const displayTotal = costView === 'monthly' ? monthlyTotal : yearlyTotal
   const upcoming = getUpcomingRenewals(subscriptions, 14)
-  const cancelledSavings = costView === 'monthly'
-    ? calcCancelledSavingsMonthly(subscriptions)
-    : calcCancelledSavingsYearly(subscriptions)
-  const yearlySubs = subscriptions.filter(s => s.status === 'active' && s.billing_cycle === 'yearly')
-  const quarterSubs = subscriptions.filter(s => s.status === 'active' && s.billing_cycle === 'quarterly')
+  const cancelledSavings = subscriptions
+    .filter(s => s.status === 'cancelled')
+    .reduce((sum, s) => sum + (costView === 'monthly' ? getMonthlyInDominant(s) : getYearlyInDominant(s)), 0)
+  const hasMultipleCurrencies = (() => {
+    const currencies = new Set(subscriptions.filter(s => s.amount > 0).map(s => s.currency || 'USD'))
+    return currencies.size > 1
+  })()
 
   // Filter & sort
   const filtered = subscriptions.filter(sub => {
@@ -498,7 +558,7 @@ const Dashboard = () => {
 
   const getStatusBadge = (status) => {
     const styles = {
-      active: 'bg-[#22C55E]/10 text-[#22C55E]',
+      active: 'bg-[#22C55E]/[0.07] text-[#22C55E]/70',
       pending: 'bg-[#FBBF24]/10 text-[#D97706]',
       paused: 'bg-[#F97316]/10 text-[#F97316]',
       cancelled: 'bg-[#F3F4F6] text-[#9CA3AF]',
@@ -543,34 +603,63 @@ const Dashboard = () => {
             Start by scanning your inbox to automatically find subscriptions, or add one manually.
           </p>
           <div className="flex flex-col items-center gap-4">
-            <div className="flex gap-3 items-center">
-              <select
-                value={scanMonths}
-                onChange={(e) => setScanMonths(Number(e.target.value))}
-                disabled={scanning}
-                className="px-3 py-3 border border-[#E5E7EB] rounded-full text-sm font-medium text-[#111827] bg-[#F9FAFB]"
-              >
-                <option value={6}>6 months</option>
-                <option value={12}>12 months</option>
-                <option value={24}>24 months</option>
-                <option value={36}>36 months</option>
-              </select>
-              <button
-                onClick={handleScanInbox}
-                disabled={scanning}
-                className="px-7 py-3 bg-[#F97316] text-white rounded-full font-semibold hover:bg-[#EA580C] transition-all duration-200 flex items-center gap-2 disabled:opacity-50 shadow-[0_8px_28px_rgba(249,115,22,0.4)] hover:shadow-[0_12px_36px_rgba(249,115,22,0.5)]"
-              >
-                {scanning ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
-                {scanning ? 'Scanning...' : 'Scan Inbox'}
-              </button>
-              <Link
-                to="/subscriptions?add=1"
-                className="px-7 py-3 border-2 border-[#F97316] text-[#F97316] rounded-full font-semibold hover:bg-[#FFF5F0] transition-colors flex items-center gap-2"
-              >
-                <Plus size={18} />
-                Add Manually
-              </Link>
-            </div>
+            {!showScanOptions ? (
+              <div className="flex gap-3 items-center">
+                <button
+                  onClick={() => setShowScanOptions(true)}
+                  disabled={scanning}
+                  className="px-7 py-3 bg-[#F97316] text-white rounded-full font-semibold hover:bg-[#EA580C] transition-all duration-200 flex items-center gap-2 disabled:opacity-50 shadow-[0_8px_28px_rgba(249,115,22,0.4)] hover:shadow-[0_12px_36px_rgba(249,115,22,0.5)]"
+                >
+                  {scanning ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+                  {scanning ? 'Scanning...' : 'Scan Inbox'}
+                </button>
+                <Link
+                  to="/subscriptions?add=1"
+                  className="px-7 py-3 border-2 border-[#F97316] text-[#F97316] rounded-full font-semibold hover:bg-[#FFF5F0] transition-colors flex items-center gap-2"
+                >
+                  <Plus size={18} />
+                  Add Manually
+                </Link>
+              </div>
+            ) : (
+              <div className="bg-[#F9FAFB] rounded-2xl p-6 w-full max-w-sm border border-[#E5E7EB]">
+                <p className="text-sm font-semibold text-[#111827] mb-3 text-left">How far back should we scan?</p>
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {[
+                    { value: 6, label: '6 months' },
+                    { value: 12, label: '1 year' },
+                    { value: 24, label: '2 years' },
+                    { value: 36, label: '3 years' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setScanMonths(opt.value)}
+                      className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                        scanMonths === opt.value
+                          ? 'bg-[#111827] text-white'
+                          : 'bg-white text-[#6B7280] hover:text-[#111827] border border-[#E5E7EB]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowScanOptions(false); handleScanInbox() }}
+                    className="flex-1 py-2.5 bg-[#F97316] text-white rounded-full font-semibold text-sm hover:bg-[#EA580C] transition-colors shadow-[0_4px_16px_rgba(249,115,22,0.3)]"
+                  >
+                    Start Scan
+                  </button>
+                  <button
+                    onClick={() => setShowScanOptions(false)}
+                    className="px-4 py-2.5 text-[#6B7280] text-sm font-medium hover:text-[#111827] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
             {scanning && (
               <div className="text-sm text-[#6B7280] text-center">
                 <p className="font-semibold text-[#111827]">Phase {scanProgress.phase}/4</p>
@@ -621,10 +710,6 @@ const Dashboard = () => {
             </p>
           </div>
           <div className="flex gap-2 items-center">
-            <button className="px-4 py-2 border-2 border-[#E5E7EB] rounded-full text-[#6B7280] hover:bg-[#F9FAFB] transition-colors flex items-center gap-2 text-sm font-medium">
-              <Download className="w-4 h-4" />
-              Export
-            </button>
             <Link
               to="/subscriptions?add=1"
               className="px-4 py-2 border-2 border-[#E5E7EB] rounded-full text-[#6B7280] hover:bg-[#F9FAFB] transition-colors flex items-center gap-2 text-sm font-medium"
@@ -632,25 +717,48 @@ const Dashboard = () => {
               <Plus className="w-4 h-4" />
               Add
             </Link>
-            <select
-              value={scanMonths}
-              onChange={(e) => setScanMonths(Number(e.target.value))}
-              disabled={scanning}
-              className="px-3 py-2 border-2 border-[#E5E7EB] rounded-full text-sm font-medium text-[#111827] bg-white"
-            >
-              <option value={6}>6 mo</option>
-              <option value={12}>12 mo</option>
-              <option value={24}>24 mo</option>
-              <option value={36}>36 mo</option>
-            </select>
-            <button
-              onClick={handleScanInbox}
-              disabled={scanning}
-              className="px-5 py-2 bg-[#F97316] text-white rounded-full hover:bg-[#EA580C] transition-all duration-200 flex items-center gap-2 text-sm font-semibold disabled:opacity-50 shadow-[0_4px_16px_rgba(249,115,22,0.3)]"
-            >
-              {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-              {scanning ? 'Scanning...' : 'Scan Inbox'}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowScanOptions(!showScanOptions)}
+                disabled={scanning}
+                className="px-5 py-2 bg-[#F97316] text-white rounded-full hover:bg-[#EA580C] transition-all duration-200 flex items-center gap-2 text-sm font-semibold disabled:opacity-50 shadow-[0_4px_16px_rgba(249,115,22,0.3)]"
+              >
+                {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                {scanning ? 'Scanning...' : 'Scan Inbox'}
+              </button>
+              {/* Scan Options Popup */}
+              {showScanOptions && !scanning && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-[0_16px_48px_-12px_rgba(0,0,0,0.25)] border border-[#E5E7EB] p-5 z-50">
+                  <p className="text-sm font-semibold text-[#111827] mb-3">How far back should we scan?</p>
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {[
+                      { value: 6, label: '6 months' },
+                      { value: 12, label: '1 year' },
+                      { value: 24, label: '2 years' },
+                      { value: 36, label: '3 years' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setScanMonths(opt.value)}
+                        className={`px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                          scanMonths === opt.value
+                            ? 'bg-[#111827] text-white'
+                            : 'bg-[#F9FAFB] text-[#6B7280] hover:text-[#111827]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => { setShowScanOptions(false); handleScanInbox() }}
+                    className="w-full py-2.5 bg-[#F97316] text-white rounded-full font-semibold text-sm hover:bg-[#EA580C] transition-colors shadow-[0_4px_16px_rgba(249,115,22,0.3)]"
+                  >
+                    Start Scan
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -744,14 +852,15 @@ const Dashboard = () => {
                 <p className="text-[#6B7280] text-xs font-semibold uppercase tracking-wider">
                   Total {costView === 'monthly' ? 'Monthly' : 'Yearly'} Cost
                 </p>
-                <p className="text-3xl font-bold text-[#111827] mt-2">${displayTotal.toFixed(2)}</p>
-                {costView === 'monthly' && (yearlySubs.length > 0 || quarterSubs.length > 0) && (
-                  <p className="text-xs text-[#9CA3AF] mt-1">
-                    Includes {yearlySubs.length > 0 ? `${yearlySubs.length} yearly` : ''}{yearlySubs.length > 0 && quarterSubs.length > 0 ? ', ' : ''}{quarterSubs.length > 0 ? `${quarterSubs.length} quarterly` : ''} (prorated)
-                  </p>
-                )}
-                {costView === 'yearly' && (
-                  <p className="text-xs text-[#9CA3AF] mt-1">All subscriptions annualized</p>
+                <p className="text-3xl font-bold text-[#111827] mt-2">{dominantSymbol}{displayTotal.toFixed(2)}</p>
+                {hasMultipleCurrencies && (
+                  <button
+                    onClick={() => setShowCurrencyInfo(!showCurrencyInfo)}
+                    className="text-xs text-[#F97316] mt-1 flex items-center gap-1 hover:underline"
+                  >
+                    <Info className="w-3 h-3" /> Converted rates
+                    {showCurrencyInfo ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
                 )}
               </div>
               <div className="w-11 h-11 rounded-2xl bg-[#FFF5F0] flex items-center justify-center">
@@ -790,7 +899,7 @@ const Dashboard = () => {
                 <p className="text-[#6B7280] text-xs font-semibold uppercase tracking-wider">
                   Saved ({costView === 'monthly' ? '/mo' : '/yr'})
                 </p>
-                <p className="text-3xl font-bold text-[#22C55E] mt-2">${cancelledSavings.toFixed(2)}</p>
+                <p className="text-3xl font-bold text-[#22C55E] mt-2">{dominantSymbol}{cancelledSavings.toFixed(2)}</p>
                 {cancelledSavings > 0 && (
                   <p className="text-xs text-[#9CA3AF] mt-1">From cancelled subscriptions</p>
                 )}
@@ -801,6 +910,26 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+
+        {/* Currency Conversion Info (collapsible) */}
+        {showCurrencyInfo && hasMultipleCurrencies && (
+          <div className="bg-[#FFF5F0] rounded-2xl p-4 mb-6 border border-[#F97316]/10">
+            <p className="text-xs font-semibold text-[#111827] mb-2">Currency Conversion</p>
+            <p className="text-xs text-[#6B7280] mb-2">
+              All amounts shown in {dominantCurrency} ({dominantSymbol.trim()}). Approximate exchange rates used:
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {[...new Set(subscriptions.filter(s => s.amount > 0 && (s.currency || 'USD') !== dominantCurrency).map(s => s.currency || 'USD'))].map(c => {
+                const rate = (RATES_TO_USD[c] || 1) / (RATES_TO_USD[dominantCurrency] || 1)
+                return (
+                  <span key={c} className="text-xs text-[#6B7280]">
+                    1 {c} ≈ {rate.toFixed(2)} {dominantCurrency}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Filter Bar */}
         <div className="bg-[#F9FAFB] rounded-2xl p-4 mb-6 flex justify-between items-center flex-wrap gap-4">
@@ -844,14 +973,10 @@ const Dashboard = () => {
         <div className="space-y-3">
           {sorted.length > 0 ? (
             sorted.map(sub => {
-              const currPrefix = sub.currency && sub.currency !== 'USD' ? sub.currency + ' ' : '$'
               const catInfo = CATEGORIES[sub.category] || CATEGORIES['other']
-              const equivMonthly = getMonthlyEquivalent(sub)
-              const equivYearly = getYearlyEquivalent(sub)
-              // Show per-item equivalent when it differs from the raw amount
-              const showEquiv = sub.billing_cycle && sub.billing_cycle !== costView.replace('ly', '')
-                && sub.billing_cycle !== (costView === 'monthly' ? 'monthly' : 'yearly')
-                && Number(sub.amount) > 0
+              const monthlyInDom = getMonthlyInDominant(sub)
+              const yearlyInDom = getYearlyInDominant(sub)
+              const isConverted = (sub.currency || 'USD') !== dominantCurrency
 
               return (
                 <div
@@ -908,21 +1033,17 @@ const Dashboard = () => {
                       </div>
                     )}
 
-                    <div className="text-right min-w-24">
-                      <p className="text-xs text-[#9CA3AF] font-medium">Price</p>
+                    <div className="text-right min-w-28">
                       {Number(sub.amount) > 0 ? (
                         <>
                           <p className="font-semibold text-[#111827] text-sm">
-                            {currPrefix}{Number(sub.amount).toFixed(2)}
-                            <span className="text-xs text-[#9CA3AF] font-normal">
-                              /{sub.billing_cycle === 'yearly' ? 'yr' : sub.billing_cycle === 'quarterly' ? 'qtr' : sub.billing_cycle === 'weekly' ? 'wk' : 'mo'}
-                            </span>
+                            {dominantSymbol}{monthlyInDom.toFixed(2)}
+                            <span className="text-xs text-[#9CA3AF] font-normal">/mo</span>
                           </p>
-                          {showEquiv && (
-                            <p className="text-xs text-[#9CA3AF]">
-                              ≈ {currPrefix}{(costView === 'monthly' ? equivMonthly : equivYearly).toFixed(2)}/{costView === 'monthly' ? 'mo' : 'yr'}
-                            </p>
-                          )}
+                          <p className="text-xs text-[#9CA3AF]">
+                            {dominantSymbol}{yearlyInDom.toFixed(2)}/yr
+                            {isConverted && ' *'}
+                          </p>
                         </>
                       ) : (
                         <p className="font-semibold text-[#D1D5DB]">—</p>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Mail, Info } from 'lucide-react'
+import { Check, Mail, Info, Plus } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 
@@ -119,106 +119,90 @@ export default function Settings() {
 
         {/* Section 2: Connected Accounts */}
         <div className="bg-white rounded-2xl p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Connected Accounts</h2>
-          <p className="text-gray-600 mb-6">Connect your email accounts to enable smart subscription detection.</p>
+          <h2 className="text-2xl font-bold text-[#111827] mb-2">Connected Accounts</h2>
+          <p className="text-[#6B7280] mb-6">Connect your email accounts to enable smart subscription detection.</p>
 
           <div className="space-y-4 mb-6">
-            {/* Gmail */}
-            <div className={`p-4 rounded-lg border-2 ${
-              connectedAccounts.gmail ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'
-            }`}>
+            {/* Gmail — Primary (connected via login) */}
+            <div className="p-5 rounded-2xl border-2 border-[#22C55E]/20 bg-[#22C55E]/[0.03]">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <Mail className="text-red-500" size={24} />
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Gmail</h3>
-                    <p className="text-sm text-gray-600">
-                      {connectedAccounts.gmail ? `Connected as ${email}` : 'Not connected'}
-                    </p>
+                  <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                    <Mail className="text-red-500" size={20} />
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {connectedAccounts.gmail && (
-                    <div className="flex items-center gap-1 text-green-600 text-sm font-medium">
-                      <Check size={18} />
-                      Connected
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-[#111827]">Gmail</h3>
+                      <span className="text-[10px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded-full uppercase tracking-wider">Primary</span>
                     </div>
-                  )}
-                  <button
-                    onClick={() => handleAccountConnect('gmail')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                      connectedAccounts.gmail
-                        ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                        : 'bg-[#F97316] text-white hover:bg-orange-500'
-                    }`}
-                  >
-                    {connectedAccounts.gmail ? 'Disconnect' : 'Connect'}
-                  </button>
+                    <p className="text-sm text-[#6B7280]">{email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-[#22C55E] text-sm font-medium">
+                  <Check size={16} />
+                  Connected
                 </div>
               </div>
             </div>
 
-            {/* Outlook */}
-            <div className={`p-4 rounded-lg border-2 ${
-              connectedAccounts.outlook ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-6 h-6 rounded bg-blue-500" />
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Outlook / Microsoft 365</h3>
-                    <p className="text-sm text-gray-600">
-                      {connectedAccounts.outlook ? 'Connected' : 'Not connected'}
-                    </p>
-                  </div>
+            {/* Connect additional Gmail — Coming Soon */}
+            <button
+              disabled
+              className="w-full p-5 rounded-2xl border-2 border-dashed border-[#E5E7EB] bg-[#F9FAFB] flex items-center justify-between opacity-60 cursor-not-allowed"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-[#F3F4F6] flex items-center justify-center">
+                  <Plus className="text-[#9CA3AF]" size={20} />
                 </div>
-                <button
-                  onClick={() => handleAccountConnect('outlook')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    connectedAccounts.outlook
-                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                      : 'bg-[#F97316] text-white hover:bg-orange-500'
-                  }`}
-                >
-                  {connectedAccounts.outlook ? 'Disconnect' : 'Connect'}
-                </button>
+                <div className="text-left">
+                  <h3 className="font-semibold text-[#111827]">Connect another Gmail</h3>
+                  <p className="text-sm text-[#9CA3AF]">Scan subscriptions from multiple Gmail accounts</p>
+                </div>
               </div>
-            </div>
+              <span className="text-xs font-bold text-[#F97316] bg-[#F97316]/10 px-3 py-1 rounded-full uppercase tracking-wider">Coming Soon</span>
+            </button>
 
-            {/* Apple Mail */}
-            <div className={`p-4 rounded-lg border-2 ${
-              connectedAccounts.apple ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-6 h-6 rounded bg-gray-800" />
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Apple Mail / iCloud</h3>
-                    <p className="text-sm text-gray-600">
-                      {connectedAccounts.apple ? 'Connected' : 'Not connected'}
-                    </p>
-                  </div>
+            {/* Outlook — Coming Soon */}
+            <button
+              disabled
+              className="w-full p-5 rounded-2xl border-2 border-dashed border-[#E5E7EB] bg-[#F9FAFB] flex items-center justify-between opacity-60 cursor-not-allowed"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <div className="w-5 h-5 rounded bg-blue-500" />
                 </div>
-                <button
-                  onClick={() => handleAccountConnect('apple')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    connectedAccounts.apple
-                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                      : 'bg-[#F97316] text-white hover:bg-orange-500'
-                  }`}
-                >
-                  {connectedAccounts.apple ? 'Disconnect' : 'Connect'}
-                </button>
+                <div className="text-left">
+                  <h3 className="font-semibold text-[#111827]">Outlook / Microsoft 365</h3>
+                  <p className="text-sm text-[#9CA3AF]">Support for Outlook coming in a future update</p>
+                </div>
               </div>
-            </div>
+              <span className="text-xs font-bold text-[#F97316] bg-[#F97316]/10 px-3 py-1 rounded-full uppercase tracking-wider">Coming Soon</span>
+            </button>
+
+            {/* Apple Mail — Coming Soon */}
+            <button
+              disabled
+              className="w-full p-5 rounded-2xl border-2 border-dashed border-[#E5E7EB] bg-[#F9FAFB] flex items-center justify-between opacity-60 cursor-not-allowed"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                  <div className="w-5 h-5 rounded bg-gray-800" />
+                </div>
+                <div className="text-left">
+                  <h3 className="font-semibold text-[#111827]">Apple Mail / iCloud</h3>
+                  <p className="text-sm text-[#9CA3AF]">Support for Apple Mail coming in a future update</p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-[#F97316] bg-[#F97316]/10 px-3 py-1 rounded-full uppercase tracking-wider">Coming Soon</span>
+            </button>
           </div>
 
           {/* Info Box */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3">
-            <Info className="text-blue-600 flex-shrink-0" size={20} />
+          <div className="bg-[#FFF5F0] border border-[#F97316]/10 rounded-2xl p-4 flex gap-3">
+            <Info className="text-[#F97316] flex-shrink-0 mt-0.5" size={18} />
             <div>
-              <h4 className="font-semibold text-blue-900 mb-1">How does email scanning work?</h4>
-              <p className="text-sm text-blue-800">
+              <h4 className="font-semibold text-[#111827] text-sm mb-1">How does email scanning work?</h4>
+              <p className="text-xs text-[#6B7280]">
                 Snipcat securely reads your billing emails to detect subscriptions. We only read — never send or delete. Your data is encrypted and never shared.
               </p>
             </div>
