@@ -174,3 +174,4 @@ async function sendRenewalEmail(
     throw new Error(`Resend error: ${err}`)
   }
 }
+
