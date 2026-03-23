@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Dark mode base styles */
+html.dark,
+html.dark body {
+  background-color: #030712; /* gray-950 */
+  color-scheme: dark;
+}
+
 /* Snipcat custom animations */
 @keyframes gradient-shift {
   0%, 100% {
