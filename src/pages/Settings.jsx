@@ -1,13 +1,49 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Check, Mail, Info, AlertTriangle, Loader2 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 import { getSubscriptions } from '../lib/subscriptions'
+import { createCheckoutSession } from '../lib/stripe'
 
 export default function Settings() {
   const { theme, setTheme } = useTheme()
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, signOut, refreshProfile } = useAuth()
+
+  // Upgrade to Pro
+  const [upgrading, setUpgrading] = useState(false)
+  const [upgradingError, setUpgradingError] = useState(null)
+  const [successMessage, setSuccessMessage] = useState(null)
+
+  // Check for successful payment (session_id in URL)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const sessionId = params.get('session_id')
+    if (sessionId && profile?.plan === 'pro') {
+      setSuccessMessage('Payment successful! You are now on the Pro plan.')
+      setTimeout(() => setSuccessMessage(null), 5000)
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [profile?.plan])
+
+  const handleUpgradeToPro = async () => {
+    setUpgrading(true)
+    setUpgradingError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        throw new Error('Not authenticated')
+      }
+
+      const checkoutUrl = await createCheckoutSession(user.id, session.access_token)
+      window.location.href = checkoutUrl
+    } catch (err) {
+      console.error('Upgrade error:', err)
+      setUpgradingError(err.message || 'Failed to start upgrade. Please try again.')
+      setUpgrading(false)
+    }
+  }
 
   // Delete account
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -295,6 +331,13 @@ export default function Settings() {
         <div className="bg-white dark:bg-[#1C1F2E] rounded-2xl p-8">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Plan & Billing</h2>
 
+          {successMessage && (
+            <div className="bg-[#22C55E]/10 border border-[#22C55E] rounded-lg p-4 mb-6 flex items-start gap-3">
+              <Check className="text-[#22C55E] flex-shrink-0" size={20} />
+              <p className="text-[#166534] dark:text-[#86efac] text-sm font-medium">{successMessage}</p>
+            </div>
+          )}
+
           <div className="bg-white dark:bg-[#252836] border border-[#E5E7EB] dark:border-[#2A2D3A] rounded-xl p-6 mb-6">
             <div className="flex items-start justify-between">
               <div>
@@ -309,10 +352,34 @@ export default function Settings() {
             </div>
           </div>
 
-          {profile?.plan !== 'pro' && (
-            <button className="w-full py-3.5 bg-gradient-to-r from-[#F97316] to-[#FB923C] text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-orange-200 hover:-translate-y-0.5 transition-all duration-200 text-base">
-              ✨ Upgrade to Pro
-            </button>
+          {profile?.plan !== 'pro' ? (
+            <>
+              {upgradingError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 rounded-lg p-4 mb-4 flex items-start gap-3">
+                  <AlertTriangle className="text-red-600 dark:text-red-400 flex-shrink-0" size={20} />
+                  <p className="text-red-700 dark:text-red-300 text-sm">{upgradingError}</p>
+                </div>
+              )}
+              <button
+                onClick={handleUpgradeToPro}
+                disabled={upgrading}
+                className="w-full py-3.5 bg-gradient-to-r from-[#F97316] to-[#FB923C] text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-orange-200 hover:-translate-y-0.5 transition-all duration-200 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:translate-y-0 flex items-center justify-center gap-2"
+              >
+                {upgrading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  '✨ Upgrade to Pro'
+                )}
+              </button>
+            </>
+          ) : (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/40 rounded-lg p-4">
+              <p className="text-blue-900 dark:text-blue-300 font-medium">You are on the Pro plan</p>
+              <p className="text-blue-700 dark:text-blue-400 text-sm mt-1">Thank you for your subscription! Manage your billing in Stripe.</p>
+            </div>
           )}
         </div>
 
