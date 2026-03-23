@@ -1,0 +1,17 @@
+[project]
+id = ""
+
+[functions.send-renewal-reminders]
+verify_jwt = false
+
+[functions.send-trial-warnings]
+verify_jwt = false
+
+[functions.send-weekly-digest]
+verify_jwt = false
+
+[functions.notify-price-change]
+verify_jwt = false
+
+[functions.analyze-email]
+verify_jwt = false
