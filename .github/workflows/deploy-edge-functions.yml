@@ -41,6 +41,16 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Deploy create-checkout-session function
+        run: supabase functions deploy create-checkout-session --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy stripe-webhook function
+        run: supabase functions deploy stripe-webhook --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
       - name: Deployment Summary
         if: success()
         run: |
@@ -49,3 +59,5 @@ jobs:
           echo "- send-trial-warnings"
           echo "- send-weekly-digest"
           echo "- notify-price-change"
+          echo "- create-checkout-session"
+          echo "- stripe-webhook"
