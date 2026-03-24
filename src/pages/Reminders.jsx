@@ -3,6 +3,7 @@ import { Bell, Plus, AlertTriangle, Inbox } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getSubscriptions, getUpcomingRenewals, getMonthlyEquivalent, getYearlyEquivalent } from '../lib/subscriptions'
 import { upsertNotificationPrefs, RENEWAL_DAYS_OPTIONS, DIGEST_DAY_OPTIONS } from '../lib/notifications'
+import { getServiceLogo, getColorForName, getServiceInitials } from '../lib/serviceLogos'
 
 const Toggle = ({ enabled, onChange }) => (
   <div
@@ -203,8 +204,23 @@ const Reminders = () => {
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="w-11 h-11 rounded-full bg-[#FFF5F0] dark:bg-[#252836] text-[#F97316] flex items-center justify-center font-semibold">
-                          {item.name?.charAt(0).toUpperCase()}
+                        {(() => {
+                          const match = getServiceLogo(item.name)
+                          const logoUrl = item.logo_url || match?.logo || null
+                          const color = getColorForName(item.name)
+                          return logoUrl ? (
+                            <img src={logoUrl} alt={item.name} className="w-11 h-11 rounded-2xl object-cover bg-gray-50 dark:bg-[#252836]" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+                          ) : null
+                        })()}
+                        <div
+                          className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-lg flex-shrink-0"
+                          style={{
+                            display: (item.logo_url || getServiceLogo(item.name)?.logo) ? 'none' : 'flex',
+                            backgroundColor: getColorForName(item.name) + '18',
+                            color: getColorForName(item.name),
+                          }}
+                        >
+                          {getServiceInitials(item.name)}
                         </div>
                         <div>
                           <p className="font-semibold text-[#111827] dark:text-white">{item.name}</p>
@@ -233,8 +249,23 @@ const Reminders = () => {
                   <div key={item.id} className="bg-white dark:bg-[#1C1F2E] rounded-2xl border border-[#F3F4F6] dark:border-[#2A2D3A] p-5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_8px_24px_rgba(0,0,0,0.3)] hover:-translate-y-0.5 transition-all duration-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="w-11 h-11 rounded-full bg-[#FFF5F0] dark:bg-[#252836] text-[#F97316] flex items-center justify-center font-semibold">
-                          {item.name?.charAt(0).toUpperCase()}
+                        {(() => {
+                          const match = getServiceLogo(item.name)
+                          const logoUrl = item.logo_url || match?.logo || null
+                          const color = getColorForName(item.name)
+                          return logoUrl ? (
+                            <img src={logoUrl} alt={item.name} className="w-11 h-11 rounded-2xl object-cover bg-gray-50 dark:bg-[#252836]" onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+                          ) : null
+                        })()}
+                        <div
+                          className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-lg flex-shrink-0"
+                          style={{
+                            display: (item.logo_url || getServiceLogo(item.name)?.logo) ? 'none' : 'flex',
+                            backgroundColor: getColorForName(item.name) + '18',
+                            color: getColorForName(item.name),
+                          }}
+                        >
+                          {getServiceInitials(item.name)}
                         </div>
                         <div>
                           <p className="font-semibold text-[#111827] dark:text-white">{item.name}</p>
