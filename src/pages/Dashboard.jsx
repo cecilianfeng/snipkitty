@@ -31,6 +31,7 @@ import {
   CATEGORIES,
 } from '../lib/subscriptions'
 import { scanGmailForSubscriptions } from '../lib/gmail'
+import { getServiceLogo, getColorForName, getServiceInitials } from '../lib/serviceLogos'
 
 const Dashboard = () => {
   const { user, getGoogleToken } = useAuth()
@@ -584,6 +585,13 @@ const Dashboard = () => {
   }
 
   const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?'
+
+  // Enhanced logo resolver: checks service library first, then falls back
+  const resolveLogoUrl = (sub) => {
+    if (sub.logo_url) return sub.logo_url
+    const match = getServiceLogo(sub.name)
+    return match?.logo || null
+  }
 
   // ─── ADD SUBSCRIPTION HANDLER ───
   const openAdd = () => {
@@ -1219,19 +1227,30 @@ const Dashboard = () => {
                   }`}
                 >
                   <div className="flex items-center gap-4 flex-1">
-                    {sub.logo_url ? (
-                      <img
-                        src={sub.logo_url}
-                        alt={sub.name}
-                        className="w-11 h-11 rounded-2xl object-cover"
-                        onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
-                      />
-                    ) : null}
+                    {(() => {
+                      const logoUrl = resolveLogoUrl(sub)
+                      const color = getColorForName(sub.name)
+                      return logoUrl ? (
+                        <img
+                          src={logoUrl}
+                          alt={sub.name}
+                          className="w-11 h-11 rounded-2xl object-cover bg-gray-50 dark:bg-[#252836]"
+                          onError={(e) => {
+                            e.target.style.display = 'none'
+                            e.target.nextSibling.style.display = 'flex'
+                          }}
+                        />
+                      ) : null
+                    })()}
                     <div
-                      className="w-11 h-11 rounded-2xl bg-[#FFF5F0] dark:bg-[#252836] text-[#F97316] flex items-center justify-center font-bold text-lg flex-shrink-0"
-                      style={{ display: sub.logo_url ? 'none' : 'flex' }}
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-lg flex-shrink-0"
+                      style={{
+                        display: resolveLogoUrl(sub) ? 'none' : 'flex',
+                        backgroundColor: getColorForName(sub.name) + '18',
+                        color: getColorForName(sub.name),
+                      }}
                     >
-                      {getInitial(sub.name)}
+                      {getServiceInitials(sub.name)}
                     </div>
                     <div>
                       <p className={`font-semibold text-[#111827] dark:text-white ${sub.status === 'cancelled' ? 'line-through text-[#9CA3AF] dark:text-gray-500' : ''}`}>

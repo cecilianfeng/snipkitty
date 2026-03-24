@@ -12,6 +12,7 @@ import {
   getMonthlyEquivalent,
   getYearlyEquivalent,
 } from '../lib/subscriptions'
+import { getServiceLogo, getColorForName, getServiceInitials } from '../lib/serviceLogos'
 
 // ─── ADD / EDIT MODAL ───
 function SubscriptionModal({ isOpen, onClose, onSave, editData }) {
@@ -415,13 +416,23 @@ export default function Subscriptions() {
                         onClick={() => toggleExpanded(item.id)}
                         className={`w-full px-5 py-4 flex items-center gap-4 hover:bg-[#F9FAFB] dark:hover:bg-[#252836] transition-colors ${isCancelled ? 'opacity-50' : ''}`}
                       >
-                        {item.logo_url ? (
-                          <img src={item.logo_url} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-[#FFF5F0] dark:bg-[#252836] text-[#F97316] flex items-center justify-center font-semibold text-sm flex-shrink-0">
-                            {item.name?.charAt(0).toUpperCase()}
-                          </div>
-                        )}
+                        {(() => {
+                          const logoUrl = item.logo_url || getServiceLogo(item.name)?.logo
+                          return logoUrl ? (
+                            <img src={logoUrl} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0 bg-gray-50 dark:bg-[#252836]"
+                              onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+                          ) : null
+                        })()}
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm flex-shrink-0"
+                          style={{
+                            display: (item.logo_url || getServiceLogo(item.name)?.logo) ? 'none' : 'flex',
+                            backgroundColor: getColorForName(item.name) + '18',
+                            color: getColorForName(item.name),
+                          }}
+                        >
+                          {getServiceInitials(item.name)}
+                        </div>
                         <div className="flex-1 text-left min-w-0">
                           <p className={`font-medium text-[#111827] dark:text-white ${isCancelled ? 'line-through text-[#6B7280] dark:text-gray-500' : ''}`}>
                             {item.name}
@@ -519,13 +530,23 @@ export default function Subscriptions() {
       <div className="space-y-2">
         {sortedAll.map(item => (
           <div key={item.id} className={`bg-white dark:bg-[#1C1F2E] border border-[#F3F4F6] dark:border-[#2A2D3A] rounded-2xl px-5 py-4 flex items-center gap-4 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 transition-all duration-200 ${item.status === 'cancelled' ? 'opacity-50' : ''}`}>
-            {item.logo_url ? (
-              <img src={item.logo_url} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-[#FFF5F0] dark:bg-[#252836] text-[#F97316] flex items-center justify-center font-semibold text-sm flex-shrink-0">
-                {item.name?.charAt(0).toUpperCase()}
-              </div>
-            )}
+            {(() => {
+              const logoUrl = item.logo_url || getServiceLogo(item.name)?.logo
+              return logoUrl ? (
+                <img src={logoUrl} alt={item.name} className="w-10 h-10 rounded-full object-cover flex-shrink-0 bg-gray-50 dark:bg-[#252836]"
+                  onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+              ) : null
+            })()}
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm flex-shrink-0"
+              style={{
+                display: (item.logo_url || getServiceLogo(item.name)?.logo) ? 'none' : 'flex',
+                backgroundColor: getColorForName(item.name) + '18',
+                color: getColorForName(item.name),
+              }}
+            >
+              {getServiceInitials(item.name)}
+            </div>
             <div className="flex-1 min-w-0">
               <p className={`font-medium text-[#111827] dark:text-white ${item.status === 'cancelled' ? 'line-through' : ''}`}>{item.name}</p>
               <p className="text-sm text-[#6B7280] dark:text-gray-400 capitalize">{CATEGORIES[item.category]?.label || 'Other'}</p>
