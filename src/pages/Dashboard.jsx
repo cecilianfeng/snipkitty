@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import {
   DollarSign,
   Package,
@@ -14,6 +13,7 @@ import {
   CheckCircle,
   Scissors,
   Info,
+  X,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -50,6 +50,8 @@ const Dashboard = () => {
   const [showPastItems, setShowPastItems] = useState(false)
   const [showScanOptions, setShowScanOptions] = useState(false) // scan month picker popup
   const [showCurrencyInfo, setShowCurrencyInfo] = useState(false) // currency conversion info
+  const [modalOpen, setModalOpen] = useState(false) // add subscription modal
+  const [editingSub, setEditingSub] = useState(null) // editing mode for modal
 
   // ─── CURRENCY CONVERSION ───
   // Approximate exchange rates to USD (used for unified display)
@@ -583,6 +585,232 @@ const Dashboard = () => {
 
   const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?'
 
+  // ─── ADD SUBSCRIPTION HANDLER ───
+  const openAdd = () => {
+    setEditingSub(null)
+    setModalOpen(true)
+  }
+
+  const handleSaveSubscription = async (formData) => {
+    try {
+      if (editingSub) {
+        await updateSubscription(user.id, editingSub.id, formData)
+      } else {
+        await createSubscription(user.id, formData)
+      }
+      await loadSubscriptions()
+      setModalOpen(false)
+      setEditingSub(null)
+    } catch (err) {
+      console.error('Save failed:', err)
+      throw err
+    }
+  }
+
+  // ─── SUBSCRIPTION MODAL COMPONENT ───
+  const SubscriptionModal = ({ isOpen, onClose, onSave }) => {
+    const [form, setForm] = useState({
+      name: '',
+      category: 'other',
+      amount: '',
+      currency: 'USD',
+      billing_cycle: 'monthly',
+      next_billing_date: '',
+      status: 'active',
+      notes: '',
+    })
+    const [saving, setSaving] = useState(false)
+
+    useEffect(() => {
+      if (editingSub) {
+        setForm({
+          name: editingSub.name || '',
+          category: editingSub.category || 'other',
+          amount: editingSub.amount?.toString() || '',
+          currency: editingSub.currency || 'USD',
+          billing_cycle: editingSub.billing_cycle || 'monthly',
+          next_billing_date: editingSub.next_billing_date || '',
+          status: editingSub.status || 'active',
+          notes: editingSub.notes || '',
+        })
+      } else {
+        setForm({
+          name: '', category: 'other', amount: '', currency: 'USD',
+          billing_cycle: 'monthly', next_billing_date: '', status: 'active', notes: '',
+        })
+      }
+    }, [editingSub, isOpen])
+
+    if (!isOpen) return null
+
+    const handleSubmit = async (e) => {
+      e.preventDefault()
+      setSaving(true)
+      try {
+        await onSave({
+          ...form,
+          amount: parseFloat(form.amount) || 0,
+          next_billing_date: form.next_billing_date || null,
+        })
+      } catch (err) {
+        console.error('Save failed:', err)
+      } finally {
+        setSaving(false)
+      }
+    }
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="bg-white dark:bg-[#1C1F2E] rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between p-6 border-b border-[#E5E7EB] dark:border-[#2A2D3A]">
+            <h2 className="text-xl font-bold text-[#111827] dark:text-white">
+              {editingSub ? 'Edit Subscription' : 'Add Subscription'}
+            </h2>
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-[#252836] transition-colors">
+              <X size={20} className="text-[#6B7280] dark:text-gray-400" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            {/* Name */}
+            <div>
+              <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Name</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Netflix, Spotify, Claude..."
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] focus:border-transparent"
+              />
+            </div>
+
+            {/* Category + Billing Cycle */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Category</label>
+                <select
+                  value={form.category}
+                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
+                >
+                  {Object.entries(CATEGORIES).map(([key, { label }]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Billing Cycle</label>
+                <select
+                  value={form.billing_cycle}
+                  onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
+                  className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Amount + Currency */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="9.99"
+                  value={form.amount}
+                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                  className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Currency</label>
+                <select
+                  value={form.currency}
+                  onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
+                  className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] bg-white"
+                >
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="CNY">CNY (¥)</option>
+                  <option value="JPY">JPY (¥)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Next Billing Date */}
+            <div>
+              <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Next Billing Date</label>
+              <input
+                type="date"
+                value={form.next_billing_date}
+                onChange={e => setForm(f => ({ ...f, next_billing_date: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+              />
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Status</label>
+              <div className="flex gap-2">
+                {['active', 'paused', 'cancelled'].map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, status: s }))}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors capitalize ${
+                      form.status === s
+                        ? 'bg-[#F97316] text-white'
+                        : 'bg-[#F9FAFB] dark:bg-[#252836] text-[#6B7280] dark:text-gray-400 hover:bg-[#F3F4F6] dark:hover:bg-[#2A2D3A]'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-[#6B7280] dark:text-gray-400 mb-1.5">Notes (optional)</label>
+              <textarea
+                rows={2}
+                placeholder="Any notes about this subscription..."
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-[#E5E7EB] dark:border-[#2A2D3A] dark:bg-[#252836] dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] resize-none"
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2.5 border-2 border-[#E5E7EB] dark:border-[#2A2D3A] text-[#6B7280] dark:text-gray-400 rounded-full font-medium hover:bg-[#F9FAFB] dark:hover:bg-[#252836] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 px-4 py-2.5 bg-[#F97316] text-white rounded-full font-medium hover:bg-[#EA580C] transition-colors disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : editingSub ? 'Save Changes' : 'Add Subscription'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
   // ─── EMPTY STATE ───
   if (!loadingData && subscriptions.length === 0) {
     return (
@@ -613,13 +841,13 @@ const Dashboard = () => {
                   {scanning ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
                   {scanning ? 'Scanning...' : 'Scan Inbox'}
                 </button>
-                <Link
-                  to="/subscriptions?add=1"
+                <button
+                  onClick={openAdd}
                   className="px-7 py-3 border-2 border-[#F97316] text-[#F97316] rounded-full font-semibold hover:bg-[#FFF5F0] transition-colors flex items-center gap-2"
                 >
                   <Plus size={18} />
-                  Add Manually
-                </Link>
+                  Add Subscription
+                </button>
               </div>
             ) : (
               <div className="bg-[#F9FAFB] dark:bg-[#252836] rounded-2xl p-6 w-full max-w-sm border border-[#E5E7EB] dark:border-[#2A2D3A]">
@@ -681,6 +909,9 @@ const Dashboard = () => {
           {/* Review Items — also shown in empty state */}
           {renderReviewSection('max-w-2xl')}
         </main>
+
+        {/* Add/Edit Subscription Modal */}
+        <SubscriptionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSave={handleSaveSubscription} />
       </div>
     )
   }
@@ -710,13 +941,13 @@ const Dashboard = () => {
             </p>
           </div>
           <div className="flex gap-2 items-center">
-            <Link
-              to="/subscriptions?add=1"
+            <button
+              onClick={openAdd}
               className="px-4 py-2 border-2 border-[#E5E7EB] dark:border-[#2A2D3A] rounded-full text-[#6B7280] dark:text-gray-400 hover:bg-[#F9FAFB] dark:hover:bg-[#252836] transition-colors flex items-center gap-2 text-sm font-medium"
             >
               <Plus className="w-4 h-4" />
-              Add
-            </Link>
+              Add Subscription
+            </button>
             <div className="relative">
               <button
                 onClick={() => setShowScanOptions(!showScanOptions)}
@@ -1140,6 +1371,9 @@ const Dashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Add/Edit Subscription Modal */}
+      <SubscriptionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSave={handleSaveSubscription} />
     </div>
   )
 }

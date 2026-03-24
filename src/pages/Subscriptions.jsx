@@ -379,7 +379,7 @@ export default function Subscriptions() {
     if (categoryEntries.length === 0) {
       return (
         <div className="text-center py-16 text-[#6B7280] dark:text-gray-400">
-          No subscriptions yet. Click "Add Manually" to get started.
+          No subscriptions yet. Click "Add Subscription" to get started.
         </div>
       )
     }
@@ -615,7 +615,7 @@ export default function Subscriptions() {
                 className="px-4 py-2 border-2 border-[#E5E7EB] dark:border-[#2A2D3A] rounded-full text-[#6B7280] dark:text-gray-400 hover:bg-[#F9FAFB] dark:hover:bg-[#252836] transition-colors flex items-center gap-2 text-sm font-medium"
               >
                 <Plus size={18} />
-                Add Manually
+                Add Subscription
               </button>
             </div>
           </div>

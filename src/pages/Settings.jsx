@@ -3,7 +3,7 @@ import { Check, Mail, Info, AlertTriangle, Loader2 } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabaseClient'
-import { getSubscriptions } from '../lib/subscriptions'
+import { getSubscriptions, updateProfile } from '../lib/subscriptions'
 import { createCheckoutSession } from '../lib/stripe'
 
 export default function Settings() {
@@ -104,10 +104,8 @@ export default function Settings() {
   const handleSaveProfile = async () => {
     setSavingProfile(true)
     try {
-      await supabase
-        .from('profiles')
-        .update({ full_name: displayName })
-        .eq('id', user.id)
+      await updateProfile(user.id, { full_name: displayName })
+      await refreshProfile()
 
       setProfileSaved(true)
       setTimeout(() => setProfileSaved(false), 2000)
