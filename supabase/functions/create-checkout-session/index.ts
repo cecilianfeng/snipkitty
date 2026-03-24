@@ -50,11 +50,13 @@ serve(async (req: Request) => {
       );
     }
 
-    // Initialize Supabase client to get user's email
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
     // Verify the token and get user email
     const token = authHeader.replace("Bearer ", "");
+
+    // Initialize Supabase client with user's auth token so RLS policies work
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {

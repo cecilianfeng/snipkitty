@@ -36,10 +36,14 @@ serve(async (req: Request) => {
     const { user_id, origin } = body;
     const siteOrigin = origin || "https://www.snipcat.app";
 
-    const supabase = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!);
-
     // Verify token
     const token = authHeader.replace("Bearer ", "");
+
+    // Create Supabase client with user's auth token so RLS policies work
+    const supabase = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user || user.id !== user_id) {
       return new Response(
