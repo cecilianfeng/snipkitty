@@ -42,13 +42,13 @@ export default function FAQ() {
               className="w-full flex items-center justify-between py-5 text-left group"
               aria-expanded={isOpen}
             >
-              <span className="text-lg font-semibold text-gray-900 group-hover:text-[#FF6B6B] transition-colors pr-4">
+              <span className="text-lg font-semibold text-gray-900 group-hover:text-[#F97316] transition-colors pr-4">
                 {faq.q}
               </span>
               <motion.span
                 animate={{ rotate: isOpen ? 45 : 0 }}
                 transition={{ duration: 0.2 }}
-                className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 text-lg font-light group-hover:bg-[#FFF5F0] group-hover:text-[#FF6B6B] transition-colors"
+                className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 text-lg font-light group-hover:bg-orange-50 group-hover:text-[#F97316] transition-colors"
               >
                 +
               </motion.span>

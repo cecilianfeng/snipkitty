@@ -7,6 +7,9 @@ import Subscriptions from './pages/Subscriptions'
 import Reminders from './pages/Reminders'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
+import About from './pages/About'
+import Privacy from './pages/Privacy'
+import Terms from './pages/Terms'
 import ProtectedRoute from './components/ProtectedRoute'
 import { useAuth } from './context/AuthContext'
 
@@ -35,6 +38,9 @@ export default function App() {
     <Routes>
       <Route path="/" element={<HomeRoute />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
       <Route path="/onboarding" element={<OnboardingRoute />} />
       <Route element={
         <ProtectedRoute>

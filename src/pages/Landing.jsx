@@ -892,21 +892,21 @@ export default function Landing() {
             <div>
               <p className="font-semibold text-gray-900 mb-3 text-sm">Company</p>
               <ul className="space-y-2 text-sm text-gray-500">
-                <li><a href="#" className="hover:text-[#F97316] transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-[#F97316] transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-[#F97316] transition-colors">Terms of Service</a></li>
+                <li><Link to="/about" className="hover:text-[#F97316] transition-colors">About</Link></li>
+                <li><Link to="/privacy" className="hover:text-[#F97316] transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="hover:text-[#F97316] transition-colors">Terms of Service</Link></li>
               </ul>
             </div>
             <div>
               <p className="font-semibold text-gray-900 mb-3 text-sm">Connect</p>
               <ul className="space-y-2 text-sm text-gray-500">
-                <li><a href="#" className="hover:text-[#F97316] transition-colors">Twitter</a></li>
-                <li><a href="mailto:hello@snipcat.com" className="hover:text-[#F97316] transition-colors">hello@snipcat.com</a></li>
+                <li><a href="https://x.com/snipcat_app" target="_blank" rel="noopener noreferrer" className="hover:text-[#F97316] transition-colors">Twitter</a></li>
+                <li><a href="mailto:hello@snipcat.app" className="hover:text-[#F97316] transition-colors">hello@snipcat.app</a></li>
               </ul>
             </div>
           </div>
           <div className="border-t border-gray-100 pt-6 text-center text-sm text-gray-400">
-            &copy; 2024 Snipcat. All rights reserved.
+            &copy; 2026 Snipcat. All rights reserved.
           </div>
         </div>
       </footer>
