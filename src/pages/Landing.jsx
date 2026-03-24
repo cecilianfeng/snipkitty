@@ -726,10 +726,12 @@ export default function Landing() {
                 </ul>
               </div>
               <a
-                href="mailto:hello@snipcat.app"
+                href="https://calendly.com/snipcat"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="block text-center w-full py-3 mt-8 rounded-full bg-gray-900 text-white font-semibold hover:bg-black transition-colors dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
               >
-                Contact Us
+                Book a Call
               </a>
             </motion.div>
           </div>
