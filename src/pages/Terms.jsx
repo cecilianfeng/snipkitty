@@ -288,9 +288,7 @@ export default function Terms() {
             <p>If you have any questions about these Terms, please contact us:</p>
             <address className="mt-3 not-italic text-gray-600">
               <strong>Xiyun Feng, doing business as Snipcat</strong><br />
-              139 Leslie Richards St<br />
-              Markham, Ontario, L6C 1N3<br />
-              Canada<br />
+              Markham, Ontario, Canada<br />
               <a href="mailto:hellosnipcat@gmail.com" className="text-[#F97316] hover:underline">hellosnipcat@gmail.com</a>
             </address>
           </section>
