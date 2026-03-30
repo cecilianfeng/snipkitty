@@ -1,165 +1,86 @@
 import { Link } from 'react-router-dom'
+import { motion } from 'framer-motion'
+
+function CatLogo({ size = 36, className = '' }) {
+  return (
+    <motion.svg
+      width={size * 1.35}
+      height={size}
+      viewBox="0 0 58 42"
+      fill="none"
+      className={className}
+      aria-label="Snipcat logo"
+      whileHover={{ scale: 1.08 }}
+      transition={{ type: 'spring', stiffness: 300 }}
+    >
+      <g transform="translate(8,26) scale(0.28)">
+        <motion.g
+          animate={{ rotate: [0, 14, 0] }}
+          transition={{ duration: 0.3, repeat: Infinity, repeatDelay: 3, ease: 'easeInOut' }}
+          style={{ transformOrigin: '0px -2px' }}
+        >
+          <circle cx="-6" cy="6" r="5" stroke="#F97316" strokeWidth="3" fill="white" />
+          <line x1="-4" y1="2" x2="6" y2="-10" stroke="#F97316" strokeWidth="3" strokeLinecap="round" />
+        </motion.g>
+        <motion.g
+          animate={{ rotate: [0, -14, 0] }}
+          transition={{ duration: 0.3, repeat: Infinity, repeatDelay: 3, ease: 'easeInOut' }}
+          style={{ transformOrigin: '0px -2px' }}
+        >
+          <circle cx="6" cy="6" r="5" stroke="#F97316" strokeWidth="3" fill="white" />
+          <line x1="4" y1="2" x2="-6" y2="-10" stroke="#F97316" strokeWidth="3" strokeLinecap="round" />
+        </motion.g>
+      </g>
+      <g transform="translate(18, 0)">
+        <path d="M8 16L4 3L14 12" fill="#111827" />
+        <path d="M32 16L36 3L26 12" fill="#111827" />
+        <path d="M9 15L6 6L13 12" fill="#F97316" opacity="0.2" />
+        <path d="M31 15L34 6L27 12" fill="#F97316" opacity="0.2" />
+        <ellipse cx="20" cy="24" rx="14" ry="13" fill="#111827" />
+        <motion.ellipse
+          cx="15" cy="22" rx="2.2" ry="2.6" fill="#F97316"
+          animate={{ scaleY: [1, 1, 0.08, 1, 1] }}
+          transition={{ duration: 0.45, repeat: Infinity, repeatDelay: 4, times: [0, 0.35, 0.5, 0.65, 1] }}
+          style={{ transformOrigin: '15px 22px' }}
+        />
+        <motion.ellipse
+          cx="25" cy="22" rx="2.2" ry="2.6" fill="#F97316"
+          animate={{ scaleY: [1, 1, 0.08, 1, 1] }}
+          transition={{ duration: 0.45, repeat: Infinity, repeatDelay: 4, times: [0, 0.35, 0.5, 0.65, 1] }}
+          style={{ transformOrigin: '25px 22px' }}
+        />
+        <ellipse cx="15.7" cy="21" rx="0.8" ry="1" fill="white" opacity="0.85" />
+        <ellipse cx="25.7" cy="21" rx="0.8" ry="1" fill="white" opacity="0.85" />
+        <path d="M18.8 27L20 28.8L21.2 27Z" fill="#F97316" />
+      </g>
+    </motion.svg>
+  )
+}
 
 export default function Privacy() {
   return (
-    <div className="min-h-screen bg-white">
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-gray-100">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to="/" className="font-bold text-gray-900 flex items-center gap-1.5">
-            <img src="/snipcat-logo.png" alt="Snipcat" className="w-6 h-6" /> Snipcat
-          </Link>
-          <Link to="/" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
-            ← Back to home
+    <div className="flex flex-col h-screen bg-white">
+      {/* Header */}
+      <header className="flex-shrink-0 border-b border-gray-200 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-bold text-gray-900">
+            <CatLogo size={28} /> Snipcat
+          </div>
+          <Link
+            to="/"
+            className="text-sm text-gray-500 hover:text-[#F97316] transition-colors"
+          >
+            &larr; Back to Home
           </Link>
         </div>
-      </nav>
+      </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-16">
-        <h1 className="text-3xl font-extrabold text-gray-900 mb-2">Privacy Policy</h1>
-        <p className="text-sm text-gray-400 mb-10">Last updated: March 24, 2026</p>
-
-        <div className="prose prose-gray max-w-none space-y-8 text-gray-600 leading-relaxed">
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">1. Introduction</h2>
-            <p>
-              Snipcat ("we", "our", or "us") operates the website snipcat.app and provides
-              subscription management services. This Privacy Policy explains how we collect,
-              use, disclose, and safeguard your information when you use our service.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">2. Information We Collect</h2>
-            <p className="mb-3">We collect the following types of information:</p>
-            <p className="mb-2">
-              <strong className="text-gray-900">Account Information:</strong> When you sign up,
-              we collect your name, email address, and profile picture through Google OAuth.
-              We do not store your Google password.
-            </p>
-            <p className="mb-2">
-              <strong className="text-gray-900">Email Data:</strong> With your explicit permission,
-              we access your Gmail inbox using read-only permissions to scan for subscription-related
-              emails. We only process email metadata and content related to subscriptions — we do
-              not read or store personal emails.
-            </p>
-            <p className="mb-2">
-              <strong className="text-gray-900">Subscription Data:</strong> Information about your
-              subscriptions that is derived from email analysis, including service names, costs,
-              billing cycles, and renewal dates.
-            </p>
-            <p>
-              <strong className="text-gray-900">Payment Information:</strong> Payment processing
-              is handled entirely by Stripe. We do not store your credit card numbers or banking
-              details on our servers.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">3. How We Use Your Information</h2>
-            <p>We use your information to:</p>
-            <p className="ml-4 mt-2">
-              — Provide and maintain our subscription tracking service<br />
-              — Analyze your emails to identify and categorize subscriptions<br />
-              — Send you renewal reminders and spending alerts<br />
-              — Process payments for Pro subscriptions<br />
-              — Improve and personalize your experience<br />
-              — Communicate with you about service updates
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">4. AI Processing</h2>
-            <p>
-              Snipcat uses AI (powered by Claude) to analyze email content and identify subscription
-              patterns. This processing is done securely and the AI does not retain your personal
-              data between sessions. We do not use your data to train AI models.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">5. Data Sharing</h2>
-            <p>We do not sell, trade, or rent your personal information. We may share data with:</p>
-            <p className="ml-4 mt-2">
-              — <strong className="text-gray-900">Stripe:</strong> For payment processing<br />
-              — <strong className="text-gray-900">Supabase:</strong> For secure data storage and authentication<br />
-              — <strong className="text-gray-900">Resend:</strong> For transactional emails (reminders, alerts)<br />
-              — <strong className="text-gray-900">Anthropic:</strong> For AI-powered email analysis (no data retained)
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">6. Data Security</h2>
-            <p>
-              We implement industry-standard security measures to protect your data, including
-              encryption in transit (TLS), encryption at rest, and secure authentication via
-              OAuth 2.0. Your email access tokens are stored securely and can be revoked at any time.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">7. Data Retention</h2>
-            <p>
-              We retain your account data for as long as your account is active. You can delete
-              your account at any time, which will permanently remove all your data from our
-              systems within 30 days. Email scan data is processed in real-time and not
-              permanently stored in raw form.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">8. Your Rights</h2>
-            <p>You have the right to:</p>
-            <p className="ml-4 mt-2">
-              — Access your personal data<br />
-              — Correct inaccurate data<br />
-              — Delete your account and data<br />
-              — Revoke email access permissions<br />
-              — Export your subscription data<br />
-              — Opt out of non-essential communications
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">9. Cookies</h2>
-            <p>
-              We use essential cookies for authentication and session management. We do not use
-              tracking cookies or third-party advertising cookies.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">10. Children's Privacy</h2>
-            <p>
-              Snipcat is not intended for users under the age of 13. We do not knowingly collect
-              personal information from children.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">11. Changes to This Policy</h2>
-            <p>
-              We may update this Privacy Policy from time to time. We will notify you of any
-              changes by posting the new Privacy Policy on this page and updating the "Last
-              updated" date.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-gray-900 mb-3">12. Contact Us</h2>
-            <p>
-              If you have any questions about this Privacy Policy, please contact us at{' '}
-              <a href="mailto:hello@snipcat.app" className="text-[#F97316] hover:underline">
-                hello@snipcat.app
-              </a>
-            </p>
-          </section>
-        </div>
-      </main>
-
-      <footer className="border-t border-gray-100 py-6 text-center text-sm text-gray-400">
-        &copy; 2026 Snipcat. All rights reserved.
-      </footer>
+      {/* Iframe fills remaining height */}
+      <iframe
+        src="https://app.termly.io/policy-viewer/policy.html?policyUUID=8e8fdf26-b031-4da2-befc-909f6aea24de"
+        title="Privacy Policy"
+        className="flex-1 w-full border-0"
+      />
     </div>
   )
 }
